@@ -4,24 +4,24 @@ import asyncio
 import logging
 import signal
 import wave
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
 import uvicorn
-from fastapi import FastAPI
 
 from src.audio import AudioCapture, AudioConfig, IncidentRecorder
-from src.config import Config, load_config
+from src.config import Config, load_runtime_config
 from src.detector import BarkDetector
 from src.direction import analyze_direction
-from src.incidents import Detection, IncidentTracker
+from src.incidents import Detection, IncidentState, IncidentTracker
 from src.storage import Event, Storage
 from src.weather import WeatherClient
 from src.web.app import create_app
 
 logger = logging.getLogger(__name__)
+
+ROLLING_BUFFER_SECONDS = 30.0
 
 
 class DoggyDetector:
@@ -35,6 +35,14 @@ class DoggyDetector:
         """
         self.config = config
         self.storage = Storage(config.storage.data_dir)
+        if config.storage.retention_days > 0:
+            result = self.storage.prune_retention(config.storage.retention_days)
+            logger.info(
+                "Retention prune complete: %s events, %s clips deleted",
+                result["events_deleted"],
+                result["clips_deleted"],
+            )
+
         self.detector = BarkDetector(threshold=config.detection.threshold)
         self.incident_tracker = IncidentTracker(config.incidents)
         self.weather_client = WeatherClient()
@@ -43,7 +51,8 @@ class DoggyDetector:
         self.audio_capture = AudioCapture(
             config=config.audio,
             chunk_callback=self._on_audio_chunk,
-            buffer_seconds=30.0,  # 30 sec pre-incident context
+            buffer_seconds=ROLLING_BUFFER_SECONDS,
+            block_seconds=config.detection.window_sec,
         )
 
         # Incident recorder for writing long incidents to disk
@@ -53,28 +62,42 @@ class DoggyDetector:
         )
 
         # Async queue for thread-safe audio chunk passing
-        self.audio_queue: asyncio.Queue = asyncio.Queue()
+        self.audio_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._retention_task: Optional[asyncio.Task] = None
         self._running = False
 
         # Live status for dashboard
         self.status = {
+            "startup_at": None,
             "last_score": 0.0,
             "audio_level": 0.0,  # RMS audio level (0-1)
+            "left_level": None,
+            "right_level": None,
+            "clipping": False,
             "is_barking": False,
             "active_incident": False,
             "chunks_processed": 0,
             "last_detection_time": None,
+            "last_audio_chunk_at": None,
             "audio_error": None,
             "mono_mode": False,
+            "queue_drops": 0,
         }
 
     async def start(self):
         """Start audio capture and processing loop."""
         logger.info("Starting Doggy Detector")
         self._running = True
+        self._loop = asyncio.get_running_loop()
+        self.status["startup_at"] = datetime.now(timezone.utc).isoformat()
 
         # Start audio capture in background thread
-        self.audio_capture.start()
+        try:
+            self.audio_capture.start()
+        except Exception as e:
+            self.status["audio_error"] = str(e)
+            logger.error("Audio capture failed: %s", e)
 
         # Check for audio errors
         if self.audio_capture._error:
@@ -84,6 +107,8 @@ class DoggyDetector:
             self.status["mono_mode"] = self.audio_capture._mono_mode
             if self.audio_capture._mono_mode:
                 logger.warning("Running in MONO mode - direction detection will not work")
+
+        self._retention_task = asyncio.create_task(self._retention_loop())
 
         # Start processing loop
         await self._process_loop()
@@ -95,6 +120,14 @@ class DoggyDetector:
 
         # Stop audio capture
         self.audio_capture.stop()
+
+        if self._retention_task:
+            self._retention_task.cancel()
+            try:
+                await self._retention_task
+            except asyncio.CancelledError:
+                pass
+            self._retention_task = None
 
         # Finalize any active incident
         incident = self.incident_tracker.force_end()
@@ -112,10 +145,20 @@ class DoggyDetector:
         Args:
             chunk: Audio chunk from capture thread
         """
-        # Queue the chunk for processing
+        if self._loop is None or self._loop.is_closed():
+            self.status["queue_drops"] += 1
+            return
+
+        try:
+            self._loop.call_soon_threadsafe(self._enqueue_audio_chunk, chunk.copy())
+        except RuntimeError:
+            self.status["queue_drops"] += 1
+
+    def _enqueue_audio_chunk(self, chunk: np.ndarray):
         try:
             self.audio_queue.put_nowait(chunk)
         except asyncio.QueueFull:
+            self.status["queue_drops"] += 1
             logger.warning("Audio queue full, dropping chunk")
 
     async def _process_loop(self):
@@ -133,9 +176,8 @@ class DoggyDetector:
                     self.audio_queue.get(), timeout=1.0
                 )
 
-                # Add chunk to audio capture's rolling buffer
-                self.audio_capture.buffer.add(chunk)
                 self.status["chunks_processed"] += 1
+                self.status["last_audio_chunk_at"] = datetime.now(timezone.utc).isoformat()
 
                 # If incident recording is active, add chunk to recorder
                 if self.incident_recorder.is_recording:
@@ -144,12 +186,13 @@ class DoggyDetector:
                 # Calculate RMS audio level (0-1 scale)
                 rms = np.sqrt(np.mean(chunk ** 2))
                 self.status["audio_level"] = min(1.0, rms * 3)  # Scale up for visibility
+                self._update_channel_status(chunk)
 
                 # Run bark detection on chunk
                 try:
                     detection_result = self.detector.detect(chunk)
                     self.status["last_score"] = detection_result.score
-                    self.status["is_barking"] = detection_result.is_bark
+                    self.status["is_barking"] = bool(detection_result.is_bark)
 
                     # Debug: log what the model hears every ~5 seconds (10 chunks)
                     if self.status["chunks_processed"] % 10 == 0:
@@ -166,13 +209,6 @@ class DoggyDetector:
                             f"(threshold={self.config.detection.threshold})"
                         )
 
-                        # Start recording if not already
-                        if not self.incident_recorder.is_recording:
-                            # Get pre-incident audio (last 10 sec) for context
-                            pre_buffer = self.audio_capture.buffer.get_last(10.0)
-                            self.incident_recorder.start(pre_buffer)
-                            logger.info("Started incident recording")
-
                         # Analyze direction from stereo audio
                         direction_result = analyze_direction(chunk)
                         logger.info(
@@ -186,24 +222,43 @@ class DoggyDetector:
                             score=detection_result.score,
                             direction=direction_result.direction,
                             direction_score=direction_result.confidence,
+                            threshold=self.detector.threshold,
+                            audio_level=self.status["audio_level"],
                         )
 
                         # Process detection with incident tracker
                         incident = self.incident_tracker.process_detection(
                             detection
                         )
-                        self.status["active_incident"] = self.incident_tracker.state.value == "active"
+                        self.status["active_incident"] = self.incident_tracker.state in {
+                            IncidentState.ACTIVE,
+                            IncidentState.COOLDOWN,
+                        }
 
                         # If incident completed, save it
                         if incident:
                             await self._save_incident(incident)
-                            self.status["active_incident"] = False
+                            self.status["active_incident"] = self.incident_tracker.state in {
+                                IncidentState.ACTIVE,
+                                IncidentState.COOLDOWN,
+                            }
+
+                        if self.incident_tracker.state == IncidentState.ACTIVE and not self.incident_recorder.is_recording:
+                            # Get pre-incident audio for context. The callback already
+                            # added the current chunk to the rolling buffer.
+                            pre_buffer = self.audio_capture.buffer.get_last(self.config.incidents.pre_roll_sec)
+                            self.incident_recorder.start(pre_buffer)
+                            logger.info("Started incident recording")
 
                 except Exception as e:
                     logger.error(f"Error during detection: {e}")
 
                 # Check for incident timeout
                 incident = self.incident_tracker.check_timeout(datetime.now())
+                self.status["active_incident"] = self.incident_tracker.state in {
+                    IncidentState.ACTIVE,
+                    IncidentState.COOLDOWN,
+                }
                 if incident:
                     logger.info("Incident ended (silence timeout)")
                     await self._save_incident(incident)
@@ -212,6 +267,10 @@ class DoggyDetector:
             except asyncio.TimeoutError:
                 # Normal timeout, check for incident timeout
                 incident = self.incident_tracker.check_timeout(datetime.now())
+                self.status["active_incident"] = self.incident_tracker.state in {
+                    IncidentState.ACTIVE,
+                    IncidentState.COOLDOWN,
+                }
                 if incident:
                     logger.info("Incident ended (silence timeout)")
                     await self._save_incident(incident)
@@ -280,6 +339,9 @@ class DoggyDetector:
                 avg_score=incident.avg_score,
                 direction=incident.direction,
                 direction_score=incident.direction_score,
+                detection_threshold=incident.detection_threshold,
+                peak_audio_level=incident.peak_audio_level,
+                avg_audio_level=incident.avg_audio_level,
                 clip_path=clip_path,
                 clip_hash=clip_hash,
                 weather_temp_f=weather.temp_f if weather else None,
@@ -288,11 +350,45 @@ class DoggyDetector:
             )
 
             # Save Event to database
-            event_id = self.storage.save_event(event)
-            logger.info(f"Saved event {event_id}")
+            try:
+                event_id = self.storage.save_event_with_retry(event)
+                logger.info(f"Saved event {event_id}")
+            except Exception as e:
+                logger.error(f"Error saving event to DB after retry: {e}")
+                try:
+                    pending_path = self.storage.save_pending_event(event, e)
+                    logger.error(f"Pending event metadata written to {pending_path}")
+                except Exception as pending_error:
+                    logger.error(f"Could not write pending event metadata: {pending_error}")
 
         except Exception as e:
             logger.error(f"Error saving incident: {e}")
+
+    def _update_channel_status(self, chunk: np.ndarray):
+        """Update lightweight audio channel health metrics."""
+        max_abs = float(np.max(np.abs(chunk))) if len(chunk) else 0.0
+        self.status["clipping"] = max_abs >= 0.98
+
+        if chunk.ndim == 2 and chunk.shape[1] >= 2:
+            left = float(np.sqrt(np.mean(chunk[:, 0] ** 2)))
+            right = float(np.sqrt(np.mean(chunk[:, 1] ** 2)))
+            self.status["left_level"] = left
+            self.status["right_level"] = right
+        else:
+            self.status["left_level"] = None
+            self.status["right_level"] = None
+
+    async def _retention_loop(self):
+        """Run retention pruning once per day."""
+        while self._running:
+            await asyncio.sleep(24 * 60 * 60)
+            if self.config.storage.retention_days > 0:
+                result = self.storage.prune_retention(self.config.storage.retention_days)
+                logger.info(
+                    "Retention prune complete: %s events, %s clips deleted",
+                    result["events_deleted"],
+                    result["clips_deleted"],
+                )
 
     def _create_wav_buffer(self, audio_data: np.ndarray, sample_rate: int) -> bytes:
         """Convert audio data to WAV format bytes.
@@ -331,20 +427,14 @@ async def main():
 
     logger.info("Doggy Detector starting")
 
-    # Load config
-    config_path = Path("config.yaml")
-    if config_path.exists():
-        config = load_config(config_path)
-        logger.info(f"Loaded config from {config_path}")
-    else:
-        config = Config()
-        logger.info("Using default config (config.yaml not found)")
+    # Load SQLite-backed runtime config, migrating config.yaml once if present
+    config, settings_store, generated_credentials = load_runtime_config()
 
     # Create detector
     detector = DoggyDetector(config)
 
     # Create FastAPI app
-    app = create_app(config, detector.storage)
+    app = create_app(config, detector.storage, settings_store, generated_credentials)
     app.state.detector = detector  # For live status access
 
     # Setup signal handlers for graceful shutdown

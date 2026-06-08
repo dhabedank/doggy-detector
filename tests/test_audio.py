@@ -1,8 +1,11 @@
 import pytest
+import asyncio
 import numpy as np
 from collections import deque
 
-from src.audio import RollingBuffer
+from src.audio import AudioCapture, AudioConfig, RollingBuffer
+from src.config import Config, StorageConfig
+from src.main import DoggyDetector
 
 
 def test_rolling_buffer_stores_samples():
@@ -43,3 +46,107 @@ def test_rolling_buffer_get_last():
     assert data.shape == (16000, 2)
     # Should be the last chunk (value 2)
     assert data[0, 0] == 2.0
+
+
+@pytest.mark.asyncio
+async def test_audio_callback_enqueues_threadsafe(tmp_path):
+    detector = DoggyDetector(Config(storage=StorageConfig(data_dir=tmp_path)))
+    detector._loop = asyncio.get_running_loop()
+    chunk = np.zeros((8000, 2), dtype=np.float32)
+
+    detector._on_audio_chunk(chunk)
+    queued = await asyncio.wait_for(detector.audio_queue.get(), timeout=1.0)
+
+    assert np.array_equal(queued, chunk)
+
+
+def test_audio_queue_drop_count(tmp_path):
+    detector = DoggyDetector(Config(storage=StorageConfig(data_dir=tmp_path)))
+    detector.audio_queue = asyncio.Queue(maxsize=1)
+    detector.audio_queue.put_nowait(np.zeros((8000, 2), dtype=np.float32))
+
+    detector._enqueue_audio_chunk(np.ones((8000, 2), dtype=np.float32))
+
+    assert detector.status["queue_drops"] == 1
+
+
+class FakeStream:
+    def __init__(self, fake_sd, **kwargs):
+        self.fake_sd = fake_sd
+        self.kwargs = kwargs
+        self.fake_sd.streams.append(self)
+
+    def start(self):
+        self.started = True
+
+    def stop(self):
+        self.started = False
+
+    def close(self):
+        pass
+
+
+class FakeSoundDevice:
+    def __init__(self):
+        self.streams = []
+
+    def query_devices(self, device=None, kind=None):
+        devices = [
+            {"name": "Laptop Mic", "max_input_channels": 1, "hostapi": 0},
+            {"name": "Mounted Yard Mic", "max_input_channels": 2, "hostapi": 0},
+        ]
+        if device is None and kind == "input":
+            return devices[0]
+        if device is None:
+            return devices
+        if device == "Mounted Yard Mic, Core Audio":
+            return devices[1]
+        raise ValueError("No matching device")
+
+    def InputStream(self, **kwargs):
+        return FakeStream(self, **kwargs)
+
+
+def test_audio_capture_pins_configured_device_by_name(monkeypatch):
+    fake_sd = FakeSoundDevice()
+    monkeypatch.setattr("src.audio.sd", fake_sd)
+    capture = AudioCapture(
+        AudioConfig(device="Mounted Yard Mic, Core Audio", sample_rate=16000, channels=2),
+        lambda chunk: None,
+    )
+
+    capture.start()
+
+    assert capture._error is None
+    assert fake_sd.streams[0].kwargs["device"] == "Mounted Yard Mic, Core Audio"
+    assert fake_sd.streams[0].kwargs["channels"] == 2
+
+
+def test_audio_capture_missing_pinned_device_does_not_fall_back(monkeypatch):
+    fake_sd = FakeSoundDevice()
+    monkeypatch.setattr("src.audio.sd", fake_sd)
+    capture = AudioCapture(
+        AudioConfig(device="Missing Yard Mic, Core Audio", sample_rate=16000, channels=2),
+        lambda chunk: None,
+    )
+
+    capture.start()
+
+    assert "Configured microphone is not available" in capture._error
+    assert fake_sd.streams == []
+
+
+def test_audio_capture_system_default_uses_default_input(monkeypatch):
+    fake_sd = FakeSoundDevice()
+    monkeypatch.setattr("src.audio.sd", fake_sd)
+    capture = AudioCapture(
+        AudioConfig(device=None, sample_rate=16000, channels=2),
+        lambda chunk: None,
+    )
+
+    capture.start()
+
+    assert capture._error is None
+    assert fake_sd.streams[0].kwargs["device"] is None
+    assert fake_sd.streams[0].kwargs["channels"] == 1
+    assert capture._mono_mode is True

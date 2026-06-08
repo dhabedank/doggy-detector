@@ -1,5 +1,9 @@
 # Dog Detector MVP Design Specification
 
+> Status note: this design spec predates the SQLite settings/auth repair.
+> Current runtime settings live in `data/events.sqlite`; `config.yaml` is only a
+> one-time legacy migration source when present.
+
 ## Overview
 
 Dog Detector is an always-on system that runs on a Raspberry Pi 5, listens for barking, saves audio clips, determines direction, and generates evidence reports. This spec covers the MVP implementation.

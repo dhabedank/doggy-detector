@@ -1,5 +1,9 @@
 # Dog Detector MVP Implementation Plan
 
+> Status note: this original implementation plan predates the SQLite
+> settings/auth repair. Current runtime settings live in `data/events.sqlite`;
+> `config.yaml` is only a one-time legacy migration source when present.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build an always-on bark detection system for Raspberry Pi that saves audio clips, determines direction, and generates evidence reports.

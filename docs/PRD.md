@@ -20,6 +20,18 @@ The product is for one specific problem:
 This is not a general smart speaker, security camera, cloud service, or legal
 automation tool. It is a local evidence notebook for repeated barking.
 
+## Current MVP Status
+
+The current implementation covers the local dashboard, YAMNet bark detection,
+left/right direction estimate when stereo audio is available, incident storage,
+clip playback, false-positive flagging, PDF/CSV report export, SQLite-backed
+settings, simple dashboard username/password auth, and health reporting.
+
+The following PRD capabilities remain roadmap items and should not be described
+as shipped behavior until implemented: dog identity learning, owner-corrected
+dog labels, push notifications, guided calibration, and label-learning
+explanations.
+
 ## Who It Is For
 
 The main user is the person running the device at home. They can install
@@ -151,6 +163,7 @@ The report must include:
 - the reporting period,
 - when the report was generated,
 - total incident count,
+- the detection threshold and model/input-level calibration values used for incidents,
 - a summary by dog or yard,
 - an hour-by-hour activity chart,
 - and a full incident log.
@@ -288,27 +301,32 @@ It records local evidence. The owner decides what to do with it.
 Audio stays on the device. Push notifications should include only event details,
 not raw audio.
 
-Every private dashboard request must require the dashboard token, except the
-simple health check URL.
+Every private dashboard request must require dashboard login, except the simple
+health check URL. The product should have one local dashboard login per device,
+not multi-user account management.
 
-If no token is configured, the system should create one on first start and save
-it. The dashboard must never return the real token in config responses.
+If no credentials are configured, the system should create a username/password
+on first start and save only the password hash. The dashboard must never return
+password or hash data in config responses.
+
+Forgotten credentials should be recoverable by rotating the dashboard password
+on startup without deleting events, clips, reports, or normal settings.
 
 The settings page must only allow normal tuning changes. It must not allow a
-web request to change the dashboard token or database path.
+web request to change the dashboard credentials or database path.
 
 The owner is responsible for local recording laws. The docs must make that
 clear.
 
 ## Files And Data
 
-All normal operating data should live in `config.yaml` and the `data/` folder.
-Backing up those two things should back up the working system.
+All normal operating data should live in the configured data folder. Backing up
+that folder should back up the working system, including SQLite settings,
+events, clips, and generated reports.
 
 The main files are:
 
 ```text
-config.yaml
 data/
 ├── events.sqlite
 ├── clips/

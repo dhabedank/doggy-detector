@@ -17,8 +17,12 @@ venv/
 
 # Runtime data
 data/
+local-test-data/
+local-ui-smoke-data/
 *.db
 *.sqlite
+config.yaml
+config.yaml.migrated
 
 # Logs
 *.log
@@ -27,3 +31,5 @@ data/
 .pytest_cache/
 .coverage
 htmlcov/
+tests/dog_detector_report_*/
+tests/dog_detector_report_*.zip
