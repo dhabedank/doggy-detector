@@ -1,1 +1,1 @@
-"""Dog Detector - Bark monitoring system."""
+"""Doggy Detector - Bark monitoring system."""

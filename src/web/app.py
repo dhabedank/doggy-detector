@@ -11,7 +11,7 @@ from src.config import Config
 
 def create_app(config: Config, storage: Storage) -> FastAPI:
     """Create and configure FastAPI application."""
-    app = FastAPI(title="Dog Detector")
+    app = FastAPI(title="Doggy Detector")
 
     # Store dependencies
     app.state.config = config

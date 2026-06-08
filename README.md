@@ -1,4 +1,4 @@
-# Dog Detector
+# Doggy Detector
 
 An always-on bark detection system for Raspberry Pi that saves audio clips, determines direction, and generates evidence reports.
 
@@ -12,8 +12,8 @@ An always-on bark detection system for Raspberry Pi that saves audio clips, dete
 
 1. Clone to your Raspberry Pi:
    ```bash
-   git clone https://github.com/youruser/dog-detector.git
-   cd dog-detector
+   git clone https://github.com/youruser/doggy-detector.git
+   cd doggy-detector
    ```
 
 2. Run the installer:
@@ -31,7 +31,7 @@ An always-on bark detection system for Raspberry Pi that saves audio clips, dete
 
 4. Start the service:
    ```bash
-   sudo systemctl start dog-detector
+   sudo systemctl start doggy-detector
    ```
 
 5. Access the dashboard via Tailscale IP shown during install.
@@ -217,10 +217,10 @@ rm -rf data         # Remove data (optional)
 
 ### Raspberry Pi
 ```bash
-sudo systemctl stop dog-detector
-sudo systemctl disable dog-detector
-sudo rm /etc/systemd/system/dog-detector.service
-rm -rf ~/dog-detector
+sudo systemctl stop doggy-detector
+sudo systemctl disable doggy-detector
+sudo rm /etc/systemd/system/doggy-detector.service
+rm -rf ~/doggy-detector
 ```
 
 ## License

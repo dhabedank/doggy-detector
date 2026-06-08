@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== Dog Detector Installer ==="
+echo "=== Doggy Detector Installer ==="
 
 # Check if running on Pi (optional warning, don't exit)
 if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null; then
@@ -86,9 +86,9 @@ fi
 
 # Install systemd service
 echo "Installing systemd service..."
-sudo tee /etc/systemd/system/dog-detector.service > /dev/null << EOF
+sudo tee /etc/systemd/system/doggy-detector.service > /dev/null << EOF
 [Unit]
-Description=Dog Detector
+Description=Doggy Detector
 After=network.target sound.target
 
 [Service]
@@ -105,7 +105,7 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable dog-detector
+sudo systemctl enable doggy-detector
 
 # Install Tailscale
 echo ""
@@ -128,10 +128,10 @@ echo ""
 echo "=== Installation Complete ==="
 echo ""
 echo "To start the detector:"
-echo "  sudo systemctl start dog-detector"
+echo "  sudo systemctl start doggy-detector"
 echo ""
 echo "To view logs:"
-echo "  sudo journalctl -u dog-detector -f"
+echo "  sudo journalctl -u doggy-detector -f"
 echo ""
 echo "Dashboard URL (local): http://localhost:8080"
 echo "Dashboard URL (Tailscale): http://$TAILSCALE_IP:8080"
