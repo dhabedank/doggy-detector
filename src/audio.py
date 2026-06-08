@@ -1,9 +1,13 @@
 """Audio capture and rolling buffer."""
 
 import asyncio
+import io
+import tempfile
 import threading
+import wave
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Callable, Deque
 import numpy as np
 
@@ -92,6 +96,8 @@ class AudioCapture:
         )
         self._stream: Optional["sd.InputStream"] = None
         self._running = False
+        self._mono_mode = False
+        self._error: Optional[str] = None
 
     def _audio_callback(self, indata: np.ndarray, frames: int, time_info, status):
         """Called by sounddevice for each audio chunk."""
@@ -110,19 +116,70 @@ class AudioCapture:
             raise RuntimeError("sounddevice not installed")
 
         self._running = True
+        self._error = None
 
         device = self.config.device
-        if device is None:
-            device = self._find_stereo_device()
+        # Don't auto-find stereo device - just use default and fall back to mono if needed
 
-        self._stream = sd.InputStream(
-            device=device,
-            channels=self.config.channels,
-            samplerate=self.config.sample_rate,
-            callback=self._audio_callback,
-            blocksize=int(self.config.sample_rate * 0.1),  # 100ms chunks
-        )
-        self._stream.start()
+        # Try stereo first, fall back to mono if needed
+        channels = self.config.channels
+        try:
+            self._stream = sd.InputStream(
+                device=device,
+                channels=channels,
+                samplerate=self.config.sample_rate,
+                callback=self._audio_callback,
+                blocksize=int(self.config.sample_rate * 0.1),  # 100ms chunks
+            )
+            self._stream.start()
+            print(f"Audio capture started: device={device}, channels={channels}")
+        except Exception as e:
+            # Try mono if stereo fails
+            if channels == 2:
+                print(f"Stereo failed ({e}), trying mono...")
+                try:
+                    # Try with explicit device first
+                    self._stream = sd.InputStream(
+                        device=device,
+                        channels=1,
+                        samplerate=self.config.sample_rate,
+                        callback=self._audio_callback_mono,
+                        blocksize=int(self.config.sample_rate * 0.1),
+                    )
+                    self._stream.start()
+                    self._mono_mode = True
+                    print(f"Audio capture started in MONO mode (direction detection disabled)")
+                except Exception as e2:
+                    # Last resort: try default device with mono
+                    print(f"Mono with device {device} failed ({e2}), trying default device...")
+                    try:
+                        self._stream = sd.InputStream(
+                            channels=1,
+                            samplerate=self.config.sample_rate,
+                            callback=self._audio_callback_mono,
+                            blocksize=int(self.config.sample_rate * 0.1),
+                        )
+                        self._stream.start()
+                        self._mono_mode = True
+                        print(f"Audio capture started with DEFAULT device in MONO mode")
+                    except Exception as e3:
+                        self._error = f"Failed to open audio: {e3}"
+                        print(f"Audio capture failed: {self._error}")
+                        self._running = False
+            else:
+                self._error = f"Failed to open audio: {e}"
+                print(f"Audio capture failed: {self._error}")
+                self._running = False
+
+    def _audio_callback_mono(self, indata: np.ndarray, frames: int, time_info, status):
+        """Callback for mono audio - duplicates to stereo."""
+        if status:
+            print(f"Audio status: {status}")
+
+        # Duplicate mono to stereo for compatibility
+        stereo_data = np.column_stack([indata[:, 0], indata[:, 0]])
+        self.buffer.add(stereo_data)
+        self.chunk_callback(stereo_data.copy())
 
     def stop(self):
         """Stop audio capture."""
@@ -143,3 +200,122 @@ class AudioCapture:
     @property
     def is_running(self) -> bool:
         return self._running and self._stream is not None
+
+
+class IncidentRecorder:
+    """Records audio to disk during an active incident.
+
+    Handles arbitrarily long incidents by writing directly to a temp file
+    instead of keeping everything in memory.
+    """
+
+    def __init__(self, sample_rate: int = 16000, channels: int = 2):
+        self.sample_rate = sample_rate
+        self.channels = channels
+        self._temp_file: Optional[tempfile.NamedTemporaryFile] = None
+        self._wav_file: Optional[wave.Wave_write] = None
+        self._recording = False
+        self._lock = threading.Lock()
+        self._sample_count = 0
+
+    @property
+    def is_recording(self) -> bool:
+        return self._recording
+
+    @property
+    def duration_seconds(self) -> float:
+        return self._sample_count / self.sample_rate
+
+    def start(self, pre_buffer: np.ndarray = None):
+        """Start recording a new incident.
+
+        Args:
+            pre_buffer: Optional audio data to prepend (for context before first bark)
+        """
+        with self._lock:
+            if self._recording:
+                return
+
+            # Create temp file
+            self._temp_file = tempfile.NamedTemporaryFile(
+                suffix=".wav", delete=False, mode="wb"
+            )
+
+            # Open as WAV
+            self._wav_file = wave.open(self._temp_file, "wb")
+            self._wav_file.setnchannels(self.channels)
+            self._wav_file.setsampwidth(2)  # 16-bit
+            self._wav_file.setframerate(self.sample_rate)
+
+            self._sample_count = 0
+            self._recording = True
+
+            # Write pre-buffer if provided
+            if pre_buffer is not None and len(pre_buffer) > 0:
+                self._write_samples(pre_buffer)
+
+    def add_audio(self, chunk: np.ndarray):
+        """Add audio chunk to the recording.
+
+        Args:
+            chunk: Audio data as float32 array
+        """
+        with self._lock:
+            if not self._recording:
+                return
+            self._write_samples(chunk)
+
+    def _write_samples(self, chunk: np.ndarray):
+        """Write samples to WAV file (must hold lock)."""
+        # Convert float32 to int16
+        audio_int16 = (chunk * 32767).astype(np.int16)
+        self._wav_file.writeframes(audio_int16.tobytes())
+        self._sample_count += len(chunk)
+
+    def stop(self) -> Optional[Path]:
+        """Stop recording and return path to the WAV file.
+
+        Returns:
+            Path to the recorded WAV file, or None if not recording
+        """
+        with self._lock:
+            if not self._recording:
+                return None
+
+            self._recording = False
+
+            # Close WAV file
+            if self._wav_file:
+                self._wav_file.close()
+                self._wav_file = None
+
+            # Get the path before closing temp file handle
+            path = Path(self._temp_file.name) if self._temp_file else None
+
+            if self._temp_file:
+                self._temp_file.close()
+                self._temp_file = None
+
+            self._sample_count = 0
+            return path
+
+    def cancel(self):
+        """Cancel recording and delete temp file."""
+        with self._lock:
+            self._recording = False
+
+            if self._wav_file:
+                self._wav_file.close()
+                self._wav_file = None
+
+            if self._temp_file:
+                path = Path(self._temp_file.name)
+                self._temp_file.close()
+                self._temp_file = None
+                # Delete the temp file
+                try:
+                    path.unlink()
+                except:
+                    pass
+
+            self._sample_count = 0

@@ -20,7 +20,10 @@ class DetectionResult:
 
 
 # YAMNet class indices for dog-related sounds
+# Including parent classes (Animal, Domestic animals) for better detection
 DOG_CLASSES = {
+    "Animal": 70,
+    "Domestic animals, pets": 71,
     "Dog": 74,
     "Bark": 75,
     "Howl": 76,

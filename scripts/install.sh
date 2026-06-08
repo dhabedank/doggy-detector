@@ -12,9 +12,9 @@ fi
 echo "Installing system dependencies..."
 sudo apt-get update
 sudo apt-get install -y \
-    python3 \
+    python3.11 \
+    python3.11-venv \
     python3-pip \
-    python3-venv \
     portaudio19-dev \
     libcairo2-dev \
     libpango1.0-dev \
@@ -26,14 +26,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$PROJECT_DIR"
 
+# Prefer Python 3.11, fall back to python3 if not available
+if command -v python3.11 &> /dev/null; then
+    PYTHON_CMD=python3.11
+else
+    PYTHON_CMD=python3
+    echo "Warning: Python 3.11 not found, using $(python3 --version)"
+    echo "TensorFlow requires Python 3.11 or 3.12"
+fi
+
 # Create virtual environment
-echo "Creating virtual environment..."
-python3 -m venv venv
+echo "Creating virtual environment with $PYTHON_CMD..."
+$PYTHON_CMD -m venv venv
 source venv/bin/activate
 
 # Install Python dependencies
 echo "Installing Python dependencies..."
 pip install --upgrade pip
+pip install tensorflow>=2.15.0
 pip install -r requirements.txt
 
 # Create data directories

@@ -1,16 +1,23 @@
 # Audio
 sounddevice>=0.4.6
 numpy>=1.24.0
+pydub>=0.25.0
 
-# ML
-tensorflow>=2.15.0
+# ML - See README for platform-specific instructions
+# On Raspberry Pi / Linux x86: tensorflow>=2.15.0
+# On Apple Silicon Mac: tensorflow-macos>=2.15.0
 tensorflow-hub>=0.15.0
 
-# Web
-fastapi>=0.109.0
+# Required for tensorflow-hub compatibility (pkg_resources)
+setuptools<71
+
+# Web (pinned for API stability)
+fastapi>=0.109.0,<1.0.0
+starlette>=0.35.0,<1.0.0
 uvicorn>=0.27.0
 jinja2>=3.1.0
 python-multipart>=0.0.6
+sse-starlette>=1.6.0
 
 # Reports
 weasyprint>=60.0

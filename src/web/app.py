@@ -19,8 +19,8 @@ def create_app(config: Config, storage: Storage) -> FastAPI:
 
     # Static files
     static_dir = Path(__file__).parent / "static"
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    static_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     # Templates
     templates_dir = Path(__file__).parent / "templates"
