@@ -7,7 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Request, Query, HTTPException, FileResponse, StreamingResponse
+from fastapi import APIRouter, Request, Query, HTTPException
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 router = APIRouter()
