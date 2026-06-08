@@ -30,7 +30,7 @@ class DetectionConfig:
 @dataclass
 class IncidentsConfig:
     min_barks: int = 2
-    gap_sec: float = 3.0
+    gap_sec: float = 15.0  # 15 sec silence = incident ends
     min_duration_sec: float = 1.0
     merge_within_sec: float = 10.0
 

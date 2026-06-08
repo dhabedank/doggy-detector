@@ -4,19 +4,52 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dog Detector - Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
     <!-- Header -->
     <header class="header">
         <div class="header-content">
             <h1 class="logo">Dog Detector</h1>
-            <div class="status-indicator">
-                <span class="status-dot" id="statusDot"></span>
-                <span class="status-text" id="statusText">Running</span>
+            <div class="header-right">
+                <div class="device-info" id="deviceInfo">
+                    <span class="device-label">Mic:</span>
+                    <span class="device-name" id="deviceName">Loading...</span>
+                </div>
+                <button class="btn btn-icon" id="settingsBtn" title="Settings">&#9881;</button>
+                <div class="status-indicator">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span class="status-text" id="statusText">Running</span>
+                </div>
             </div>
         </div>
     </header>
+
+    <!-- Live Status Bar -->
+    <div class="status-bar" id="statusBar">
+        <div class="status-bar-item">
+            <span class="status-bar-label">Input:</span>
+            <div class="level-meter">
+                <div class="level-fill" id="audioLevelFill"></div>
+            </div>
+            <span class="level-value" id="audioLevelValue">0.00</span>
+        </div>
+        <div class="status-bar-item">
+            <span class="status-bar-label">Bark:</span>
+            <div class="level-meter">
+                <div class="level-fill level-fill-score" id="scoreFill"></div>
+            </div>
+            <span class="level-value" id="scoreValue">0.00</span>
+        </div>
+        <div class="status-bar-item">
+            <span class="status-bar-label">Status:</span>
+            <span class="detection-status" id="detectionStatus">Listening...</span>
+        </div>
+        <div class="status-bar-item">
+            <span class="status-bar-label">Chunks:</span>
+            <span id="chunksProcessed">0</span>
+        </div>
+    </div>
 
     <!-- Main Content -->
     <main class="container">
@@ -38,6 +71,7 @@
                 </div>
             </div>
             <div class="nav-right">
+                <button class="btn btn-primary" id="testAudioBtn">Test Detection</button>
                 <button class="btn btn-secondary" id="generateReportBtn">Generate Report</button>
                 <button class="btn btn-secondary" id="refreshBtn">Refresh</button>
             </div>
@@ -91,7 +125,56 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="cancelReportBtn">Cancel</button>
-                <button class="btn btn-primary" id="downloadReportBtn">Download</button>
+                <button class="btn btn-secondary" id="downloadCsvBtn">Download CSV</button>
+                <button class="btn btn-primary" id="downloadReportBtn">Download PDF</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Settings</h2>
+                <button class="modal-close" id="closeSettingsBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="audioDevice">Microphone</label>
+                    <select id="audioDevice" class="form-input">
+                        <option value="auto">Auto-detect stereo mic</option>
+                    </select>
+                    <small class="form-hint">Restart required after changing</small>
+                </div>
+                <div class="form-group">
+                    <label for="threshold">Detection Sensitivity</label>
+                    <div class="slider-container">
+                        <input type="range" id="threshold" min="0.01" max="1.0" step="0.01" class="form-slider">
+                        <span id="thresholdValue">0.5</span>
+                    </div>
+                    <small class="form-hint">Lower = more sensitive (more false positives). Higher = less sensitive.</small>
+                </div>
+                <hr>
+                <div class="form-group">
+                    <label for="locationAddress">Location Address</label>
+                    <input type="text" id="locationAddress" class="form-input" placeholder="123 Main St, City, State">
+                    <small class="form-hint">For report headers</small>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="locationLat">Latitude</label>
+                        <input type="number" id="locationLat" class="form-input" step="0.0001" placeholder="34.0522">
+                    </div>
+                    <div class="form-group">
+                        <label for="locationLon">Longitude</label>
+                        <input type="number" id="locationLon" class="form-input" step="0.0001" placeholder="-118.2437">
+                    </div>
+                </div>
+                <small class="form-hint">For weather lookups. <a href="https://www.latlong.net/" target="_blank">Find coordinates</a></small>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>
+                <button class="btn btn-primary" id="saveSettingsBtn">Save Settings</button>
             </div>
         </div>
     </div>
@@ -99,6 +182,6 @@
     <!-- Audio Player (hidden) -->
     <audio id="audioPlayer"></audio>
 
-    <script src="{{ url_for('static', filename='app.js') }}"></script>
+    <script src="/static/app.js"></script>
 </body>
 </html>

@@ -4,8 +4,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 import zipfile
+import io
 
-from src.config import LocationConfig
+from src.config import Config, LocationConfig
 from src.storage import Event
 
 # Try to import weasyprint for PDF generation
@@ -14,6 +15,34 @@ try:
     WEASYPRINT_AVAILABLE = True
 except ImportError:
     WEASYPRINT_AVAILABLE = False
+
+
+def generate_pdf_report(
+    events: List[Event],
+    config: Config,
+    start_date: datetime,
+    end_date: datetime,
+) -> bytes:
+    """Generate a PDF report and return as bytes.
+
+    Args:
+        events: List of events to include
+        config: App configuration (for location info)
+        start_date: Report start date
+        end_date: Report end date
+
+    Returns:
+        PDF file contents as bytes
+    """
+    if not WEASYPRINT_AVAILABLE:
+        raise RuntimeError("weasyprint not installed")
+
+    generator = ReportGenerator(config.location)
+    html_content = generator.generate_html(events, start_date, end_date)
+
+    # Generate PDF to bytes
+    pdf_bytes = HTML(string=html_content).write_pdf()
+    return pdf_bytes
 
 
 class ReportGenerator:
@@ -169,8 +198,8 @@ class ReportGenerator:
 
     <div class="report-header">
         <h2>Report Information</h2>
-        <p><strong>Location:</strong> {self.location.address}</p>
-        <p><strong>Coordinates:</strong> {self.location.lat:.4f}, {self.location.lon:.4f}</p>
+        <p><strong>Location:</strong> {self.location.address or 'Not specified'}</p>
+        <p><strong>Coordinates:</strong> {f"{self.location.lat:.4f}, {self.location.lon:.4f}" if self.location.lat and self.location.lon else "Not specified"}</p>
         <p><strong>Report Period:</strong> {start_date.strftime("%Y-%m-%d")} to {end_date.strftime("%Y-%m-%d")}</p>
         <p><strong>Generated:</strong> {generated_at}</p>
     </div>
