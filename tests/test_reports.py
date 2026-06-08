@@ -63,7 +63,7 @@ def test_generate_html_report(sample_events, location):
         start_date=datetime(2024, 1, 15),
         end_date=datetime(2024, 1, 15, 23, 59, 59),
     )
-    assert "DOG DETECTOR REPORT" in html
+    assert "DOGGY DETECTOR REPORT" in html
     assert "123 Main St" in html
     assert "Total incidents: 2" in html
     assert "Left direction: 1" in html

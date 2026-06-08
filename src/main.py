@@ -1,4 +1,4 @@
-"""Main entry point for Dog Detector MVP."""
+"""Main entry point for Doggy Detector MVP."""
 
 import asyncio
 import logging
@@ -24,7 +24,7 @@ from src.web.app import create_app
 logger = logging.getLogger(__name__)
 
 
-class DogDetector:
+class DoggyDetector:
     """Main orchestrator for dog detection system."""
 
     def __init__(self, config: Config):
@@ -70,7 +70,7 @@ class DogDetector:
 
     async def start(self):
         """Start audio capture and processing loop."""
-        logger.info("Starting Dog Detector")
+        logger.info("Starting Doggy Detector")
         self._running = True
 
         # Start audio capture in background thread
@@ -90,7 +90,7 @@ class DogDetector:
 
     async def stop(self):
         """Stop capture and finalize any active incident."""
-        logger.info("Stopping Dog Detector")
+        logger.info("Stopping Doggy Detector")
         self._running = False
 
         # Stop audio capture
@@ -104,7 +104,7 @@ class DogDetector:
             # Cancel any partial recording that didn't become an incident
             self.incident_recorder.cancel()
 
-        logger.info("Dog Detector stopped")
+        logger.info("Doggy Detector stopped")
 
     def _on_audio_chunk(self, chunk: np.ndarray):
         """Callback for audio thread - puts chunk in async queue.
@@ -329,7 +329,7 @@ async def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    logger.info("Dog Detector starting")
+    logger.info("Doggy Detector starting")
 
     # Load config
     config_path = Path("config.yaml")
@@ -341,7 +341,7 @@ async def main():
         logger.info("Using default config (config.yaml not found)")
 
     # Create detector
-    detector = DogDetector(config)
+    detector = DoggyDetector(config)
 
     # Create FastAPI app
     app = create_app(config, detector.storage)

@@ -1,1 +1,1 @@
-"""Dog Detector tests."""
+"""Doggy Detector tests."""
