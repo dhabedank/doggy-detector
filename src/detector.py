@@ -1,5 +1,6 @@
 """Bark detection using YAMNet."""
 
+import csv
 from dataclasses import dataclass
 from typing import List, Optional
 import numpy as np
@@ -38,7 +39,7 @@ class BarkDetector:
 
     MODEL_URL = "https://tfhub.dev/google/yamnet/1"
 
-    def __init__(self, threshold: float = 0.5):
+    def __init__(self, threshold: float = 0.15):
         self.threshold = threshold
         self._model = None
         self._class_names: Optional[List[str]] = None
@@ -56,9 +57,8 @@ class BarkDetector:
         # Load class names
         class_map_path = self._model.class_map_path().numpy().decode("utf-8")
         with open(class_map_path) as f:
-            # Skip header
-            lines = f.readlines()[1:]
-            self._class_names = [line.strip().split(",")[2] for line in lines]
+            reader = csv.DictReader(f)
+            self._class_names = [row["display_name"] for row in reader]
 
     def detect(self, audio: np.ndarray) -> DetectionResult:
         """
@@ -100,7 +100,7 @@ class BarkDetector:
 
         return DetectionResult(
             score=float(max_dog_score),
-            is_bark=max_dog_score >= self.threshold,
+            is_bark=bool(max_dog_score >= self.threshold),
             top_classes=top_classes,
         )
 

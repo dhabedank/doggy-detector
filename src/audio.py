@@ -73,7 +73,7 @@ class RollingBuffer:
 
 @dataclass
 class AudioConfig:
-    device: Optional[str]
+    device: Optional[int | str]
     sample_rate: int
     channels: int
 
@@ -86,9 +86,11 @@ class AudioCapture:
         config: AudioConfig,
         chunk_callback: Callable[[np.ndarray], None],
         buffer_seconds: float = 5.0,
+        block_seconds: float = 0.5,
     ):
         self.config = config
         self.chunk_callback = chunk_callback
+        self.block_seconds = block_seconds
         self.buffer = RollingBuffer(
             max_seconds=buffer_seconds,
             sample_rate=config.sample_rate,
@@ -117,55 +119,57 @@ class AudioCapture:
 
         self._running = True
         self._error = None
+        self._mono_mode = False
 
-        device = self.config.device
-        # Don't auto-find stereo device - just use default and fall back to mono if needed
+        try:
+            device, device_info = self._resolve_input_device(self.config.device)
+        except Exception as e:
+            self._error = str(e)
+            print(f"Audio capture failed: {self._error}")
+            self._running = False
+            return
 
-        # Try stereo first, fall back to mono if needed
-        channels = self.config.channels
+        max_channels = int(device_info.get("max_input_channels", 0))
+        channels = min(self.config.channels, max_channels)
+        if channels < 1:
+            self._error = f"Selected input device has no input channels: {device_info.get('name', device)}"
+            print(f"Audio capture failed: {self._error}")
+            self._running = False
+            return
+
+        blocksize = max(1, int(self.config.sample_rate * self.block_seconds))
+        callback = self._audio_callback_mono if channels == 1 else self._audio_callback
         try:
             self._stream = sd.InputStream(
                 device=device,
                 channels=channels,
                 samplerate=self.config.sample_rate,
-                callback=self._audio_callback,
-                blocksize=int(self.config.sample_rate * 0.1),  # 100ms chunks
+                callback=callback,
+                blocksize=blocksize,
             )
             self._stream.start()
-            print(f"Audio capture started: device={device}, channels={channels}")
+            self._mono_mode = channels == 1
+            mode = "MONO" if self._mono_mode else "stereo"
+            print(f"Audio capture started: device={device_info.get('name', device)}, channels={channels} ({mode})")
         except Exception as e:
-            # Try mono if stereo fails
+            # Try mono on the same selected/default device if stereo open fails.
             if channels == 2:
                 print(f"Stereo failed ({e}), trying mono...")
                 try:
-                    # Try with explicit device first
                     self._stream = sd.InputStream(
                         device=device,
                         channels=1,
                         samplerate=self.config.sample_rate,
                         callback=self._audio_callback_mono,
-                        blocksize=int(self.config.sample_rate * 0.1),
+                        blocksize=blocksize,
                     )
                     self._stream.start()
                     self._mono_mode = True
-                    print(f"Audio capture started in MONO mode (direction detection disabled)")
+                    print(f"Audio capture started in MONO mode: device={device_info.get('name', device)}")
                 except Exception as e2:
-                    # Last resort: try default device with mono
-                    print(f"Mono with device {device} failed ({e2}), trying default device...")
-                    try:
-                        self._stream = sd.InputStream(
-                            channels=1,
-                            samplerate=self.config.sample_rate,
-                            callback=self._audio_callback_mono,
-                            blocksize=int(self.config.sample_rate * 0.1),
-                        )
-                        self._stream.start()
-                        self._mono_mode = True
-                        print(f"Audio capture started with DEFAULT device in MONO mode")
-                    except Exception as e3:
-                        self._error = f"Failed to open audio: {e3}"
-                        print(f"Audio capture failed: {self._error}")
-                        self._running = False
+                    self._error = f"Failed to open selected audio device {device_info.get('name', device)}: {e2}"
+                    print(f"Audio capture failed: {self._error}")
+                    self._running = False
             else:
                 self._error = f"Failed to open audio: {e}"
                 print(f"Audio capture failed: {self._error}")
@@ -189,13 +193,28 @@ class AudioCapture:
             self._stream.close()
             self._stream = None
 
-    def _find_stereo_device(self) -> Optional[int]:
-        """Find a stereo input device."""
-        devices = sd.query_devices()
-        for i, device in enumerate(devices):
-            if device["max_input_channels"] >= 2:
-                return i
-        return None
+    def _resolve_input_device(self, configured_device: Optional[int | str]):
+        """Resolve the configured input device without silently switching devices."""
+        if configured_device is None:
+            return None, sd.query_devices(kind="input")
+
+        if isinstance(configured_device, int):
+            devices = sd.query_devices()
+            if configured_device < 0 or configured_device >= len(devices):
+                raise RuntimeError(f"Configured microphone id {configured_device} is not available")
+            device_info = devices[configured_device]
+            if device_info["max_input_channels"] <= 0:
+                raise RuntimeError(f"Configured microphone id {configured_device} is not an input device")
+            return configured_device, device_info
+
+        configured_name = configured_device.strip()
+        if not configured_name:
+            return None, sd.query_devices(kind="input")
+
+        try:
+            return configured_name, sd.query_devices(configured_name, kind="input")
+        except Exception as exc:
+            raise RuntimeError(f"Configured microphone is not available: {configured_name}") from exc
 
     @property
     def is_running(self) -> bool:

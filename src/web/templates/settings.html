@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doggy Detector - Settings</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1 class="logo">Settings</h1>
+            <div class="header-right">
+                <a class="btn btn-secondary" href="/">Dashboard</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="container settings-page">
+        <section class="settings-intro">
+            <h2>Incident Timing</h2>
+            <p>
+                A barking session starts after enough bark detections. Once no bark is detected for the silence gap,
+                the detector enters a merge window. If barking returns inside that window, it keeps the same incident
+                going. If not, the incident is saved.
+            </p>
+            <p id="incidentTimingSummary" class="settings-callout">Loading current timing...</p>
+        </section>
+
+        <form id="settingsForm" class="settings-form">
+            <section class="settings-section">
+                <div class="section-header">
+                    <h2>Audio</h2>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="audioDevice">Microphone</label>
+                        <select id="audioDevice" class="form-input">
+                            <option value="auto">System default input</option>
+                        </select>
+                        <small class="form-hint">For monitoring, pin the mounted microphone by name. Changing this requires a restart.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="threshold">Detection threshold</label>
+                        <div class="slider-container">
+                            <input type="range" id="threshold" min="0.001" max="1.0" step="0.001" class="form-slider">
+                            <input type="number" id="thresholdNumber" class="form-input threshold-number" min="0.001" max="1.0" step="0.001">
+                        </div>
+                        <small class="form-hint">A bark is recorded when the model score is at or above this value. Lower is more sensitive.</small>
+                    </div>
+                </div>
+            </section>
+
+            <section class="settings-section">
+                <div class="section-header">
+                    <h2>Barking Sessions</h2>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="minBarks">Barks to start</label>
+                        <input type="number" id="minBarks" class="form-input" min="1" max="20" step="1">
+                        <small class="form-hint">How many bark detections are needed before recording is treated as real.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="gapSec">Silence gap</label>
+                        <input type="number" id="gapSec" class="form-input" min="1" max="120" step="1">
+                        <small class="form-hint">Seconds without a bark above threshold before the session enters cooldown.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="mergeWithinSec">Merge window</label>
+                        <input type="number" id="mergeWithinSec" class="form-input" min="0" max="180" step="1">
+                        <small class="form-hint">Seconds after the silence gap where new barking continues the same session.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="preRollSec">Pre-roll audio</label>
+                        <select id="preRollSec" class="form-input">
+                            <option value="5">5 seconds</option>
+                            <option value="10">10 seconds</option>
+                            <option value="15">15 seconds</option>
+                            <option value="20">20 seconds</option>
+                        </select>
+                        <small class="form-hint">Audio included before the incident officially starts.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="minDurationSec">Minimum duration</label>
+                        <input type="number" id="minDurationSec" class="form-input" min="0" max="60" step="0.1">
+                        <small class="form-hint">Very short confirmed incidents below this length are discarded.</small>
+                    </div>
+                </div>
+            </section>
+
+            <section class="settings-section">
+                <div class="section-header">
+                    <h2>Location</h2>
+                </div>
+                <div class="form-grid">
+                    <div class="form-group form-group-wide">
+                        <label for="locationAddress">Address</label>
+                        <input type="text" id="locationAddress" class="form-input" placeholder="123 Main St, City, State">
+                        <small class="form-hint">Used in report headers.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="locationLat">Latitude</label>
+                        <input type="number" id="locationLat" class="form-input" min="-90" max="90" step="any" placeholder="40.000000">
+                    </div>
+                    <div class="form-group">
+                        <label for="locationLon">Longitude</label>
+                        <input type="number" id="locationLon" class="form-input" min="-180" max="180" step="any" placeholder="-105.000000">
+                        <small class="form-hint">Used for weather lookup.</small>
+                    </div>
+                </div>
+            </section>
+
+            <section class="settings-section">
+                <div class="section-header">
+                    <h2>Diagnostics</h2>
+                    <button class="btn btn-secondary" type="button" id="refreshHealthBtn">Refresh</button>
+                </div>
+                <div class="diagnostics-summary">
+                    <span class="diagnostics-state" id="diagnosticsState">Loading</span>
+                    <span id="diagnosticsGenerated">Waiting for health checks...</span>
+                </div>
+                <div class="health-checks health-checks-settings" id="settingsHealthChecks">
+                    <div class="health-empty">Waiting for health checks...</div>
+                </div>
+            </section>
+
+            <div class="settings-actions">
+                <span id="settingsSaveStatus" class="save-status"></span>
+                <button class="btn btn-primary" type="submit">Save Settings</button>
+            </div>
+        </form>
+    </main>
+
+    <script src="/static/settings.js"></script>
+</body>
+</html>

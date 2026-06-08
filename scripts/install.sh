@@ -43,46 +43,12 @@ source venv/bin/activate
 # Install Python dependencies
 echo "Installing Python dependencies..."
 pip install --upgrade pip
-pip install tensorflow>=2.15.0
+pip install "tensorflow>=2.15.0"
 pip install -r requirements.txt
 
 # Create data directories
 echo "Creating data directories..."
 mkdir -p data/clips data/reports
-
-# Create config if not exists
-if [ ! -f config.yaml ]; then
-    echo "Creating default config.yaml..."
-    cat > config.yaml << 'CONFIGEOF'
-location:
-  address: ""
-  lat: null
-  lon: null
-
-audio:
-  device: null
-  sample_rate: 16000
-  channels: 2
-
-detection:
-  threshold: 0.5
-  window_sec: 0.5
-
-incidents:
-  min_barks: 2
-  gap_sec: 3.0
-  min_duration_sec: 1.0
-  merge_within_sec: 10.0
-
-storage:
-  data_dir: ./data
-  retention_days: 0
-
-web:
-  host: 0.0.0.0
-  port: 8080
-CONFIGEOF
-fi
 
 # Install systemd service
 echo "Installing systemd service..."
@@ -136,4 +102,5 @@ echo ""
 echo "Dashboard URL (local): http://localhost:8080"
 echo "Dashboard URL (Tailscale): http://$TAILSCALE_IP:8080"
 echo ""
-echo "Edit config.yaml to set your location and preferences."
+echo "Use the dashboard Settings screen to set your location and preferences."
+echo "The first startup logs generated dashboard login credentials."

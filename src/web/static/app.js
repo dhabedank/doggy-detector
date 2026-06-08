@@ -9,13 +9,18 @@ let falsePositiveFilter = '';
 
 // Modal state
 let reportModal = null;
-let settingsModal = null;
+let eventDetailModal = null;
+let falsePositiveModal = null;
+let pendingFalsePositiveEventId = null;
+let selectedFalsePositiveReason = 'speech';
+let eventCache = {};
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeElements();
     setupEventListeners();
     fetchEvents();
+    fetchSummary();
     fetchStatus();
 
     // Set today's date as default for report modal
@@ -27,7 +32,8 @@ document.addEventListener('DOMContentLoaded', function() {
 // Initialize DOM elements
 function initializeElements() {
     reportModal = document.getElementById('reportModal');
-    settingsModal = document.getElementById('settingsModal');
+    eventDetailModal = document.getElementById('eventDetailModal');
+    falsePositiveModal = document.getElementById('falsePositiveModal');
 }
 
 // Setup event listeners
@@ -55,20 +61,22 @@ function setupEventListeners() {
     document.getElementById('closeReportBtn').addEventListener('click', hideReportModal);
     document.getElementById('cancelReportBtn').addEventListener('click', hideReportModal);
     document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
-    document.getElementById('downloadCsvBtn').addEventListener('click', downloadCsv);
 
-    // Test audio button
-    document.getElementById('testAudioBtn').addEventListener('click', testAudioDetection);
+    // Event detail modal listeners
+    document.getElementById('closeEventDetailBtn').addEventListener('click', hideEventDetailModal);
+    document.getElementById('closeEventDetailFooterBtn').addEventListener('click', hideEventDetailModal);
 
-    // Settings modal listeners
-    document.getElementById('settingsBtn').addEventListener('click', showSettingsModal);
-    document.getElementById('closeSettingsBtn').addEventListener('click', hideSettingsModal);
-    document.getElementById('cancelSettingsBtn').addEventListener('click', hideSettingsModal);
-    document.getElementById('saveSettingsBtn').addEventListener('click', saveSettings);
-
-    // Threshold slider
-    document.getElementById('threshold').addEventListener('input', function() {
-        document.getElementById('thresholdValue').textContent = this.value;
+    // False-positive reason modal listeners
+    document.getElementById('closeFalsePositiveBtn').addEventListener('click', hideFalsePositiveModal);
+    document.getElementById('cancelFalsePositiveBtn').addEventListener('click', hideFalsePositiveModal);
+    document.getElementById('saveFalsePositiveBtn').addEventListener('click', saveFalsePositiveReason);
+    document.querySelectorAll('.reason-option').forEach(button => {
+        button.addEventListener('click', function() {
+            selectedFalsePositiveReason = this.dataset.reason;
+            document.querySelectorAll('.reason-option').forEach(option => option.classList.remove('selected'));
+            this.classList.add('selected');
+            document.getElementById('falsePositiveCustomReason').value = this.dataset.reason;
+        });
     });
 
     // Pagination listeners
@@ -93,8 +101,11 @@ function setupEventListeners() {
         if (event.target === reportModal) {
             hideReportModal();
         }
-        if (event.target === settingsModal) {
-            hideSettingsModal();
+        if (event.target === eventDetailModal) {
+            hideEventDetailModal();
+        }
+        if (event.target === falsePositiveModal) {
+            hideFalsePositiveModal();
         }
     });
 }
@@ -132,6 +143,7 @@ function fetchEvents() {
             renderEvents(data.events || []);
             totalPages = data.total_pages || 1;
             updatePagination();
+            fetchSummary();
         })
         .catch(error => {
             console.error('Error fetching events:', error);
@@ -149,8 +161,11 @@ function renderEvents(events) {
         return;
     }
 
+    eventCache = {};
+
     tbody.innerHTML = events.map(event => {
-        const timestamp = new Date(event.timestamp);
+        eventCache[event.id] = event;
+        const timestamp = new Date(event.started_at);
         const timeString = timestamp.toLocaleTimeString('en-US', {
             hour: '2-digit',
             minute: '2-digit',
@@ -162,22 +177,23 @@ function renderEvents(events) {
             day: 'numeric'
         });
 
-        const duration = event.duration ? event.duration.toFixed(2) : 'N/A';
-        const score = event.confidence ? (event.confidence * 100).toFixed(1) : 'N/A';
+        const duration = event.duration_sec !== null && event.duration_sec !== undefined
+            ? Number(event.duration_sec).toFixed(2)
+            : 'N/A';
+        const score = event.peak_score !== null && event.peak_score !== undefined
+            ? (Number(event.peak_score) * 100).toFixed(1)
+            : 'N/A';
 
-        const direction = event.direction === 'left'
-            ? '<span class="direction-left">←</span>'
-            : '<span class="direction-right">→</span>';
+        const direction = renderDirection(event.direction);
 
-        const clipButton = event.clip_path
-            ? `<button class="btn btn-action btn-play" onclick="playClip('${event.clip_path}')">Play</button>`
-            : '<button class="btn btn-action btn-play" disabled>No Clip</button>';
+        const clipButton = `<button class="btn btn-action btn-play" onclick="showEventDetail('${event.id}')">${event.clip_url ? 'Details' : 'Details'}</button>`;
 
-        const isFlaggedFalsePositive = event.flagged_as_false_positive || false;
+        const isFlaggedFalsePositive = event.is_false_pos || false;
         const flagButtonClass = isFlaggedFalsePositive ? 'btn-flag flagged' : 'btn-flag';
         const flagButtonText = isFlaggedFalsePositive ? 'Unflag' : 'Flag';
 
         const flagButton = `<button class="btn btn-action ${flagButtonClass}" onclick="toggleFlag(this, '${event.id}', ${isFlaggedFalsePositive})">${flagButtonText}</button>`;
+        const deleteButton = `<button class="btn btn-action btn-delete" onclick="deleteEvent('${event.id}', '${timeString.replace(/'/g, "\\'")}')">Delete</button>`;
 
         const rowClass = isFlaggedFalsePositive ? 'false-positive' : '';
 
@@ -188,10 +204,23 @@ function renderEvents(events) {
                 <td class="event-score">${score}%</td>
                 <td>${direction}</td>
                 <td>${clipButton}</td>
-                <td class="actions">${flagButton}</td>
+                <td class="actions">${flagButton}${deleteButton}</td>
             </tr>
         `;
     }).join('');
+}
+
+function renderDirection(direction) {
+    if (direction === 'left') {
+        return '<span class="direction-left">←</span>';
+    }
+    if (direction === 'right') {
+        return '<span class="direction-right">→</span>';
+    }
+    if (direction === 'center') {
+        return '<span class="direction-center">↔</span>';
+    }
+    return '<span class="direction-unknown">?</span>';
 }
 
 // Update pagination controls
@@ -206,28 +235,18 @@ function updatePagination() {
     nextBtn.disabled = currentPage >= totalPages;
 }
 
-// Play audio clip
-function playClip(clipPath) {
-    const audioPlayer = document.getElementById('audioPlayer');
-    audioPlayer.src = `/api/clips/${clipPath}`;
-    audioPlayer.play().catch(error => {
-        console.error('Error playing audio:', error);
-        alert('Error playing audio clip');
-    });
-}
-
 // Toggle flag status
 function toggleFlag(button, eventId, isFlagged) {
-    const endpoint = isFlagged ? `/api/events/${eventId}/unflag` : `/api/events/${eventId}/flag`;
-    const method = 'POST';
-    const body = !isFlagged ? JSON.stringify({ reason: 'Flagged as false positive' }) : null;
+    if (!isFlagged) {
+        showFalsePositiveModal(eventId);
+        return;
+    }
 
-    fetch(endpoint, {
-        method: method,
+    fetch(`/api/events/${eventId}/unflag`, {
+        method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-        },
-        body: body
+        }
     })
     .then(response => {
         if (!response.ok) {
@@ -235,11 +254,160 @@ function toggleFlag(button, eventId, isFlagged) {
         }
         // Refresh events to reflect the flag change
         fetchEvents();
+        fetchSummary();
     })
     .catch(error => {
         console.error('Error toggling flag:', error);
         alert('Error updating event status');
     });
+}
+
+function showFalsePositiveModal(eventId) {
+    pendingFalsePositiveEventId = eventId;
+    selectedFalsePositiveReason = 'speech';
+    document.getElementById('falsePositiveCustomReason').value = 'speech';
+    document.querySelectorAll('.reason-option').forEach(option => {
+        option.classList.toggle('selected', option.dataset.reason === selectedFalsePositiveReason);
+    });
+    falsePositiveModal.classList.add('show');
+}
+
+function hideFalsePositiveModal() {
+    falsePositiveModal.classList.remove('show');
+    pendingFalsePositiveEventId = null;
+}
+
+function saveFalsePositiveReason() {
+    if (!pendingFalsePositiveEventId) {
+        return;
+    }
+
+    const customReason = document.getElementById('falsePositiveCustomReason').value.trim();
+    const reason = customReason || selectedFalsePositiveReason;
+
+    fetch(`/api/events/${pendingFalsePositiveEventId}/flag`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason: reason })
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        hideFalsePositiveModal();
+        fetchEvents();
+        fetchSummary();
+    })
+    .catch(error => {
+        console.error('Error saving false positive reason:', error);
+        alert('Error updating event status');
+    });
+}
+
+// Delete an event and its referenced clip
+function deleteEvent(eventId, eventTime) {
+    const confirmed = confirm(`Delete this incident from ${eventTime}? This also removes its saved clip.`);
+    if (!confirmed) {
+        return;
+    }
+
+    fetch(`/api/events/${eventId}`, {
+        method: 'DELETE'
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        fetchEvents();
+        fetchSummary();
+    })
+    .catch(error => {
+        console.error('Error deleting event:', error);
+        alert('Error deleting event');
+    });
+}
+
+function showEventDetail(eventId) {
+    const cachedEvent = eventCache[eventId];
+    if (cachedEvent) {
+        renderEventDetail(cachedEvent);
+        eventDetailModal.classList.add('show');
+    }
+
+    fetch(`/api/events/${eventId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(event => {
+            eventCache[event.id] = event;
+            renderEventDetail(event);
+            eventDetailModal.classList.add('show');
+        })
+        .catch(error => {
+            console.error('Error loading event detail:', error);
+            alert('Error loading incident details');
+        });
+}
+
+function renderEventDetail(event) {
+    const startedAt = new Date(event.started_at);
+    const audio = document.getElementById('detailAudioPlayer');
+    const noClip = document.getElementById('detailNoClip');
+
+    if (event.clip_url) {
+        audio.src = event.clip_url;
+        audio.hidden = false;
+        noClip.hidden = true;
+    } else {
+        audio.removeAttribute('src');
+        audio.hidden = true;
+        noClip.hidden = false;
+    }
+
+    document.getElementById('detailStarted').textContent = startedAt.toLocaleString();
+    document.getElementById('detailDuration').textContent = formatDuration(event.duration_sec);
+    document.getElementById('detailPeak').textContent = formatPercent(event.peak_score);
+    document.getElementById('detailAverage').textContent = formatPercent(event.avg_score);
+    document.getElementById('detailThreshold').textContent = formatThreshold(event.detection_threshold);
+    document.getElementById('detailAudioLevel').textContent = formatAudioLevel(event);
+    document.getElementById('detailBarks').textContent = event.bark_count ?? '-';
+    document.getElementById('detailDirection').textContent = event.direction || 'unknown';
+    document.getElementById('detailWeather').textContent = formatWeather(event);
+    document.getElementById('detailFalsePositive').textContent = event.is_false_pos
+        ? (event.false_pos_reason || 'yes')
+        : 'no';
+    document.getElementById('detailHash').textContent = event.clip_hash || 'No clip fingerprint';
+}
+
+function formatThreshold(value) {
+    if (value === null || value === undefined) {
+        return 'Not recorded';
+    }
+    return Number(value).toFixed(3);
+}
+
+function formatAudioLevel(event) {
+    const peak = event.peak_audio_level;
+    const avg = event.avg_audio_level;
+    if (peak === null || peak === undefined) {
+        return 'Not recorded';
+    }
+    const peakText = `${(Number(peak) * 100).toFixed(0)}% peak`;
+    if (avg === null || avg === undefined) {
+        return peakText;
+    }
+    return `${peakText}, ${(Number(avg) * 100).toFixed(0)}% avg`;
+}
+
+function hideEventDetailModal() {
+    const audio = document.getElementById('detailAudioPlayer');
+    audio.pause();
+    eventDetailModal.classList.remove('show');
 }
 
 // Show report modal
@@ -252,7 +420,7 @@ function hideReportModal() {
     reportModal.classList.remove('show');
 }
 
-// Download report
+// Download report package
 function downloadReport() {
     const startDate = document.getElementById('startDate').value;
     const endDate = document.getElementById('endDate').value;
@@ -274,26 +442,30 @@ function downloadReport() {
     setTimeout(hideReportModal, 500);
 }
 
-// Download CSV export
-function downloadCsv() {
-    const startDate = document.getElementById('startDate').value;
-    const endDate = document.getElementById('endDate').value;
+function fetchSummary() {
+    fetch('/api/summary')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => renderSummary(data))
+        .catch(error => console.error('Error fetching summary:', error));
+}
 
-    if (!startDate || !endDate) {
-        alert('Please select both start and end dates');
-        return;
-    }
+function renderSummary(data) {
+    const today = data.today || {};
+    const allTime = data.all_time || {};
 
-    if (new Date(startDate) > new Date(endDate)) {
-        alert('Start date must be before end date');
-        return;
-    }
-
-    const csvUrl = `/api/reports/csv?start_date=${startDate}&end_date=${endDate}`;
-    window.location.href = csvUrl;
-
-    // Close modal after initiating download
-    setTimeout(hideReportModal, 500);
+    document.getElementById('todayIncidents').textContent = today.incident_count || 0;
+    document.getElementById('todayDuration').textContent = formatDuration(today.total_duration_sec || 0);
+    document.getElementById('todayLongest').textContent = formatDuration(today.longest_duration_sec || 0);
+    document.getElementById('todayPeak').textContent = formatPercent(today.peak_score || 0);
+    document.getElementById('allIncidents').textContent = allTime.incident_count || 0;
+    document.getElementById('allDuration').textContent = formatDuration(allTime.total_duration_sec || 0);
+    document.getElementById('allLongest').textContent = formatDuration(allTime.longest_duration_sec || 0);
+    document.getElementById('allPeak').textContent = formatPercent(allTime.peak_score || 0);
 }
 
 // Update status display from data
@@ -310,6 +482,8 @@ function updateStatusDisplay(data) {
     const scoreValue = document.getElementById('scoreValue');
     const detectionStatus = document.getElementById('detectionStatus');
     const chunksProcessed = document.getElementById('chunksProcessed');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
 
     // Update audio level meter (RMS 0-1 mapped to 0-100%)
     audioLevelFill.style.width = (audioLevel * 100) + '%';
@@ -323,6 +497,21 @@ function updateStatusDisplay(data) {
     if (data.chunks_processed !== undefined) {
         chunksProcessed.textContent = data.chunks_processed.toLocaleString();
     }
+
+    const health = data.health || { state: data.audio_error ? 'critical' : 'unknown', checks: [] };
+    const healthState = health.state || 'unknown';
+    const healthProblems = (health.checks || [])
+        .filter(check => check.state !== 'ok')
+        .map(check => check.message);
+
+    statusDot.classList.remove('stopped', 'warn', 'critical', 'unknown');
+    if (healthState !== 'ok') {
+        statusDot.classList.add(healthState === 'warn' ? 'warn' : 'critical');
+    }
+    statusText.textContent = healthState.toUpperCase();
+    statusText.title = healthProblems.length > 0 ? healthProblems.join(' | ') : 'All health checks are OK';
+    statusDot.title = statusText.title;
+    renderOperationsSummary(data, health);
 
     // Update detection status
     detectionStatus.classList.remove('listening', 'barking', 'incident', 'error');
@@ -343,6 +532,58 @@ function updateStatusDisplay(data) {
         detectionStatus.textContent = 'Starting...';
         detectionStatus.classList.add('listening');
     }
+}
+
+function renderOperationsSummary(data, health) {
+    const checks = health.checks || [];
+    const detectorCheck = findHealthCheck(checks, 'detector');
+    const diskCheck = findHealthCheck(checks, 'disk_free');
+    const urgent = checks.filter(check => ['critical', 'unknown'].includes(check.state));
+    const warnings = checks.filter(check => check.state === 'warn');
+
+    document.getElementById('opsDetector').textContent = detectorCheck
+        ? shortHealthMessage(detectorCheck)
+        : (data.audio_error ? 'Audio error' : 'Running');
+    document.getElementById('opsUptime').textContent = formatUptime(data.startup_at);
+    document.getElementById('opsDisk').textContent = diskCheck ? diskCheck.message : '-';
+
+    const alerts = urgent.length > 0 ? urgent : warnings;
+    const alertText = alerts.length > 0
+        ? `${alerts.length} ${urgent.length > 0 ? 'urgent' : 'warning'}`
+        : 'None';
+    const alertMessages = alerts.map(check => `${check.name.replaceAll('_', ' ')}: ${check.message}`).join(' | ');
+    const opsAlerts = document.getElementById('opsAlerts');
+    opsAlerts.textContent = alertText;
+    opsAlerts.title = alertMessages || 'No urgent health alerts';
+    document.getElementById('opsStrip').classList.toggle('has-alerts', alerts.length > 0);
+}
+
+function findHealthCheck(checks, name) {
+    return checks.find(check => check.name === name);
+}
+
+function shortHealthMessage(check) {
+    if (check.state === 'ok') {
+        return 'Running';
+    }
+    if (check.state === 'warn') {
+        return 'Warning';
+    }
+    if (check.state === 'critical') {
+        return 'Critical';
+    }
+    return 'Unknown';
+}
+
+function formatUptime(startupAt) {
+    if (!startupAt) {
+        return '-';
+    }
+    const started = new Date(startupAt);
+    if (Number.isNaN(started.getTime())) {
+        return '-';
+    }
+    return formatDuration((Date.now() - started.getTime()) / 1000);
 }
 
 // Connect to Server-Sent Events for live status (no polling, no log spam)
@@ -373,149 +614,46 @@ function fetchStatus() {
         });
 }
 
+function formatDuration(seconds) {
+    const totalSeconds = Math.max(0, Math.round(Number(seconds) || 0));
+    if (totalSeconds < 60) {
+        return `${totalSeconds}s`;
+    }
+    const minutes = Math.floor(totalSeconds / 60);
+    const remainder = totalSeconds % 60;
+    if (minutes < 60) {
+        return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const minuteRemainder = minutes % 60;
+    return minuteRemainder > 0 ? `${hours}h ${minuteRemainder}m` : `${hours}h`;
+}
+
+function formatPercent(value) {
+    if (value === null || value === undefined) {
+        return '-';
+    }
+    return `${(Number(value) * 100).toFixed(1)}%`;
+}
+
+function formatWeather(event) {
+    if (event.weather_temp_f === null || event.weather_temp_f === undefined) {
+        return 'not recorded';
+    }
+    const wind = event.weather_wind_mph !== null && event.weather_wind_mph !== undefined
+        ? `, ${Number(event.weather_wind_mph).toFixed(1)} mph`
+        : '';
+    return `${Number(event.weather_temp_f).toFixed(1)} F${wind}, ${event.weather_conditions || 'unknown'}`;
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
 // Start SSE connection for live updates
 connectStatusStream();
-
-// Show settings modal
-function showSettingsModal() {
-    // Load devices and current settings
-    Promise.all([
-        fetch('/api/devices').then(r => r.json()),
-        fetch('/api/settings').then(r => r.json())
-    ])
-    .then(([devicesData, settingsData]) => {
-        // Populate device dropdown
-        const deviceSelect = document.getElementById('audioDevice');
-        deviceSelect.innerHTML = '<option value="auto">Auto-detect stereo mic</option>';
-
-        if (devicesData.devices) {
-            const currentDevice = settingsData.audio ? settingsData.audio.device : null;
-            devicesData.devices.forEach(device => {
-                const stereoLabel = device.is_stereo ? ' (stereo)' : ' (mono)';
-                const option = document.createElement('option');
-                option.value = device.id;
-                option.textContent = device.name + stereoLabel;
-                // Use == for type coercion (device.id might be string, currentDevice might be number)
-                if (currentDevice !== null && currentDevice == device.id) {
-                    option.selected = true;
-                }
-                deviceSelect.appendChild(option);
-            });
-        }
-
-        // Set current values
-        if (settingsData.detection) {
-            const threshold = settingsData.detection.threshold || 0.5;
-            document.getElementById('threshold').value = threshold;
-            document.getElementById('thresholdValue').textContent = threshold;
-        }
-
-        if (settingsData.location) {
-            document.getElementById('locationAddress').value = settingsData.location.address || '';
-            document.getElementById('locationLat').value = settingsData.location.lat || '';
-            document.getElementById('locationLon').value = settingsData.location.lon || '';
-        }
-
-        settingsModal.classList.add('show');
-    })
-    .catch(error => {
-        console.error('Error loading settings:', error);
-        alert('Error loading settings');
-    });
-}
-
-// Hide settings modal
-function hideSettingsModal() {
-    settingsModal.classList.remove('show');
-}
-
-// Save settings
-function saveSettings() {
-    const deviceSelect = document.getElementById('audioDevice');
-    const threshold = document.getElementById('threshold').value;
-    const address = document.getElementById('locationAddress').value;
-    const lat = document.getElementById('locationLat').value;
-    const lon = document.getElementById('locationLon').value;
-
-    const settings = {
-        audio_device: deviceSelect.value,
-        detection_threshold: parseFloat(threshold),
-        location_address: address,
-        location_lat: lat ? parseFloat(lat) : null,
-        location_lon: lon ? parseFloat(lon) : null
-    };
-
-    fetch('/api/settings', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(settings)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            alert(data.message);
-            hideSettingsModal();
-            fetchStatus(); // Refresh status display
-        } else {
-            alert('Error saving settings: ' + (data.error || 'Unknown error'));
-        }
-    })
-    .catch(error => {
-        console.error('Error saving settings:', error);
-        alert('Error saving settings');
-    });
-}
-
-// Test audio detection with sample file
-function testAudioDetection() {
-    const btn = document.getElementById('testAudioBtn');
-    const originalText = btn.textContent;
-    btn.textContent = 'Testing...';
-    btn.disabled = true;
-
-    fetch('/api/test-audio', { method: 'POST' })
-        .then(response => response.json())
-        .then(data => {
-            btn.textContent = originalText;
-            btn.disabled = false;
-
-            if (data.success) {
-                // Build result message
-                let msg = `Test Results:\n\n`;
-                msg += `File: ${data.file}\n`;
-                msg += `Duration: ${data.duration_sec}s\n`;
-                msg += `Chunks analyzed: ${data.chunks_analyzed}\n`;
-                msg += `Threshold: ${data.threshold}\n\n`;
-                msg += `Max bark score: ${data.max_score}\n`;
-                msg += `Bark detections: ${data.bark_detections}\n\n`;
-
-                if (data.bark_detections > 0) {
-                    msg += `SUCCESS: Model detected barking!\n\n`;
-                } else if (data.max_score > 0.1) {
-                    msg += `PARTIAL: Model heard dog sounds but below threshold.\n`;
-                    msg += `Try lowering threshold in Settings.\n\n`;
-                } else {
-                    msg += `ISSUE: Model did not detect dog sounds.\n\n`;
-                }
-
-                // Show some details
-                msg += `Sample detections:\n`;
-                const samples = data.details.slice(0, 5);
-                samples.forEach(d => {
-                    msg += `  ${d.time_sec}s: score=${d.score} [${d.top_classes.join(', ')}]\n`;
-                });
-
-                alert(msg);
-            } else {
-                alert('Test failed: ' + (data.detail || 'Unknown error'));
-            }
-        })
-        .catch(error => {
-            btn.textContent = originalText;
-            btn.disabled = false;
-            console.error('Error testing audio:', error);
-            alert('Error running test: ' + error.message);
-        });
-}

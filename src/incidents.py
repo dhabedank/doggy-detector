@@ -13,6 +13,7 @@ class IncidentState(Enum):
     """State of the incident tracker."""
     MONITORING = "monitoring"
     ACTIVE = "active"
+    COOLDOWN = "cooldown"
 
 
 @dataclass
@@ -22,6 +23,8 @@ class Detection:
     score: float
     direction: str
     direction_score: float
+    threshold: Optional[float] = None
+    audio_level: Optional[float] = None
 
 
 @dataclass
@@ -34,6 +37,9 @@ class Incident:
     avg_score: float
     direction: str
     direction_score: float
+    detection_threshold: Optional[float] = None
+    peak_audio_level: Optional[float] = None
+    avg_audio_level: Optional[float] = None
     detections: list = field(default_factory=list)
 
     @property
@@ -55,6 +61,7 @@ class IncidentTracker:
         self.state = IncidentState.MONITORING
         self.detections = []
         self.last_detection_time = None
+        self.cooldown_started_at = None
 
     def process_detection(self, detection: Detection) -> Optional[Incident]:
         """Process a bark detection and update state.
@@ -65,11 +72,25 @@ class IncidentTracker:
         Returns:
             An incident if one was completed, None otherwise
         """
+        if self.state == IncidentState.MONITORING:
+            self._clear_stale_monitoring_detections(detection.timestamp)
+
+        if self.state in {IncidentState.ACTIVE, IncidentState.COOLDOWN} and self.last_detection_time is not None:
+            gap = (detection.timestamp - self.last_detection_time).total_seconds()
+            if gap > self._finalize_after_sec():
+                completed = self._finalize_incident()
+                self._start_new_detection(detection)
+                return completed
+
+            if self.state == IncidentState.COOLDOWN:
+                self.state = IncidentState.ACTIVE
+                self.cooldown_started_at = None
+
         self.detections.append(detection)
         self.last_detection_time = detection.timestamp
 
         # Transition to ACTIVE after min_barks detections
-        if len(self.detections) == self.config.min_barks:
+        if len(self.detections) >= self.config.min_barks:
             self.state = IncidentState.ACTIVE
 
         # Still building the incident
@@ -85,13 +106,18 @@ class IncidentTracker:
             An incident if one was completed and met minimum criteria, None otherwise
         """
         if self.state == IncidentState.MONITORING:
+            self._clear_stale_monitoring_detections(current_time)
             return None
 
         # Check if gap_sec has elapsed since last detection
         if self.last_detection_time is not None:
             gap = (current_time - self.last_detection_time).total_seconds()
-            if gap >= self.config.gap_sec:
-                # Gap detected, finalize the incident
+            if self.state == IncidentState.ACTIVE and gap >= self.config.gap_sec:
+                self.state = IncidentState.COOLDOWN
+                self.cooldown_started_at = current_time
+                return None
+
+            if self.state == IncidentState.COOLDOWN and gap >= self._finalize_after_sec():
                 return self._finalize_incident()
 
         return None
@@ -103,6 +129,7 @@ class IncidentTracker:
             An incident if one was in progress, None otherwise
         """
         if self.state == IncidentState.MONITORING:
+            self._reset()
             return None
 
         return self._finalize_incident()
@@ -124,6 +151,8 @@ class IncidentTracker:
         scores = [d.score for d in self.detections]
         peak_score = max(scores)
         avg_score = mean(scores)
+        audio_levels = [d.audio_level for d in self.detections if d.audio_level is not None]
+        thresholds = [d.threshold for d in self.detections if d.threshold is not None]
 
         # Determine dominant direction by counting
         direction_counts = {}
@@ -152,6 +181,9 @@ class IncidentTracker:
             avg_score=avg_score,
             direction=dominant_direction,
             direction_score=dominant_direction_score,
+            detection_threshold=thresholds[-1] if thresholds else None,
+            peak_audio_level=max(audio_levels) if audio_levels else None,
+            avg_audio_level=mean(audio_levels) if audio_levels else None,
             detections=self.detections.copy(),
         )
 
@@ -163,3 +195,26 @@ class IncidentTracker:
         self.state = IncidentState.MONITORING
         self.detections = []
         self.last_detection_time = None
+        self.cooldown_started_at = None
+
+    def _start_new_detection(self, detection: Detection):
+        """Seed a new potential incident after finalizing an older one."""
+        self.detections = [detection]
+        self.last_detection_time = detection.timestamp
+        self.cooldown_started_at = None
+        self.state = (
+            IncidentState.ACTIVE
+            if len(self.detections) >= self.config.min_barks
+            else IncidentState.MONITORING
+        )
+
+    def _clear_stale_monitoring_detections(self, current_time: datetime):
+        if not self.detections or self.last_detection_time is None:
+            return
+
+        gap = (current_time - self.last_detection_time).total_seconds()
+        if gap >= self.config.gap_sec:
+            self._reset()
+
+    def _finalize_after_sec(self) -> float:
+        return self.config.gap_sec + self.config.merge_within_sec

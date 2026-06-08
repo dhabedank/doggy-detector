@@ -16,7 +16,7 @@
                     <span class="device-label">Mic:</span>
                     <span class="device-name" id="deviceName">Loading...</span>
                 </div>
-                <button class="btn btn-icon" id="settingsBtn" title="Settings">&#9881;</button>
+                <a class="btn btn-icon" id="settingsBtn" href="/settings" title="Settings">&#9881;</a>
                 <div class="status-indicator">
                     <span class="status-dot" id="statusDot"></span>
                     <span class="status-text" id="statusText">Running</span>
@@ -53,6 +53,62 @@
 
     <!-- Main Content -->
     <main class="container">
+        <!-- Summary Cards -->
+        <section class="summary-grid" id="summaryGrid">
+            <div class="summary-card">
+                <span class="summary-label">Today incidents</span>
+                <strong id="todayIncidents">0</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Today barking</span>
+                <strong id="todayDuration">0s</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Today longest</span>
+                <strong id="todayLongest">0s</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Today peak</span>
+                <strong id="todayPeak">0%</strong>
+            </div>
+            <div class="summary-card summary-card-muted">
+                <span class="summary-label">All-time incidents</span>
+                <strong id="allIncidents">0</strong>
+            </div>
+            <div class="summary-card summary-card-muted">
+                <span class="summary-label">All-time barking</span>
+                <strong id="allDuration">0s</strong>
+            </div>
+            <div class="summary-card summary-card-muted">
+                <span class="summary-label">All-time longest</span>
+                <strong id="allLongest">0s</strong>
+            </div>
+            <div class="summary-card summary-card-muted">
+                <span class="summary-label">All-time peak</span>
+                <strong id="allPeak">0%</strong>
+            </div>
+        </section>
+
+        <!-- Operations Summary -->
+        <section class="ops-strip" id="opsStrip">
+            <div class="ops-item">
+                <span class="ops-label">Detector</span>
+                <strong id="opsDetector">Starting</strong>
+            </div>
+            <div class="ops-item">
+                <span class="ops-label">Uptime</span>
+                <strong id="opsUptime">-</strong>
+            </div>
+            <div class="ops-item">
+                <span class="ops-label">Disk</span>
+                <strong id="opsDisk">-</strong>
+            </div>
+            <div class="ops-item ops-item-alert">
+                <span class="ops-label">Alerts</span>
+                <strong id="opsAlerts">None</strong>
+            </div>
+        </section>
+
         <!-- Navigation Bar -->
         <nav class="navbar">
             <div class="nav-left">
@@ -71,8 +127,7 @@
                 </div>
             </div>
             <div class="nav-right">
-                <button class="btn btn-primary" id="testAudioBtn">Test Detection</button>
-                <button class="btn btn-secondary" id="generateReportBtn">Generate Report</button>
+                <button class="btn btn-secondary" id="generateReportBtn">Export Results</button>
                 <button class="btn btn-secondary" id="refreshBtn">Refresh</button>
             </div>
         </nav>
@@ -110,7 +165,7 @@
     <div class="modal" id="reportModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Generate Report</h2>
+                <h2>Export Results</h2>
                 <button class="modal-close" id="closeReportBtn">&times;</button>
             </div>
             <div class="modal-body">
@@ -125,62 +180,101 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="cancelReportBtn">Cancel</button>
-                <button class="btn btn-secondary" id="downloadCsvBtn">Download CSV</button>
-                <button class="btn btn-primary" id="downloadReportBtn">Download PDF</button>
+                <button class="btn btn-primary" id="downloadReportBtn">Download ZIP</button>
             </div>
         </div>
     </div>
 
-    <!-- Settings Modal -->
-    <div class="modal" id="settingsModal">
-        <div class="modal-content">
+    <!-- Event Detail Modal -->
+    <div class="modal" id="eventDetailModal">
+        <div class="modal-content modal-content-wide">
             <div class="modal-header">
-                <h2>Settings</h2>
-                <button class="modal-close" id="closeSettingsBtn">&times;</button>
+                <h2>Incident Details</h2>
+                <button class="modal-close" id="closeEventDetailBtn">&times;</button>
             </div>
             <div class="modal-body">
-                <div class="form-group">
-                    <label for="audioDevice">Microphone</label>
-                    <select id="audioDevice" class="form-input">
-                        <option value="auto">Auto-detect stereo mic</option>
-                    </select>
-                    <small class="form-hint">Restart required after changing</small>
-                </div>
-                <div class="form-group">
-                    <label for="threshold">Detection Sensitivity</label>
-                    <div class="slider-container">
-                        <input type="range" id="threshold" min="0.01" max="1.0" step="0.01" class="form-slider">
-                        <span id="thresholdValue">0.5</span>
+                <audio id="detailAudioPlayer" class="detail-audio" controls></audio>
+                <div id="detailNoClip" class="detail-no-clip">No saved clip for this incident.</div>
+                <div class="detail-grid">
+                    <div>
+                        <span class="detail-label">Started</span>
+                        <strong id="detailStarted">-</strong>
                     </div>
-                    <small class="form-hint">Lower = more sensitive (more false positives). Higher = less sensitive.</small>
-                </div>
-                <hr>
-                <div class="form-group">
-                    <label for="locationAddress">Location Address</label>
-                    <input type="text" id="locationAddress" class="form-input" placeholder="123 Main St, City, State">
-                    <small class="form-hint">For report headers</small>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="locationLat">Latitude</label>
-                        <input type="number" id="locationLat" class="form-input" step="0.0001" placeholder="34.0522">
+                    <div>
+                        <span class="detail-label">Duration</span>
+                        <strong id="detailDuration">-</strong>
                     </div>
-                    <div class="form-group">
-                        <label for="locationLon">Longitude</label>
-                        <input type="number" id="locationLon" class="form-input" step="0.0001" placeholder="-118.2437">
+                    <div>
+                        <span class="detail-label">Peak score</span>
+                        <strong id="detailPeak">-</strong>
+                    </div>
+                    <div>
+                        <span class="detail-label">Average score</span>
+                        <strong id="detailAverage">-</strong>
+                    </div>
+                    <div>
+                        <span class="detail-label">Threshold used</span>
+                        <strong id="detailThreshold">-</strong>
+                    </div>
+                    <div>
+                        <span class="detail-label">Input level</span>
+                        <strong id="detailAudioLevel">-</strong>
+                    </div>
+                    <div>
+                        <span class="detail-label">Barks</span>
+                        <strong id="detailBarks">-</strong>
+                    </div>
+                    <div>
+                        <span class="detail-label">Direction</span>
+                        <strong id="detailDirection">-</strong>
+                    </div>
+                    <div>
+                        <span class="detail-label">Weather</span>
+                        <strong id="detailWeather">-</strong>
+                    </div>
+                    <div>
+                        <span class="detail-label">False positive</span>
+                        <strong id="detailFalsePositive">-</strong>
                     </div>
                 </div>
-                <small class="form-hint">For weather lookups. <a href="https://www.latlong.net/" target="_blank">Find coordinates</a></small>
+                <div class="detail-hash">
+                    <span class="detail-label">Clip fingerprint</span>
+                    <code id="detailHash">-</code>
+                </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" id="cancelSettingsBtn">Cancel</button>
-                <button class="btn btn-primary" id="saveSettingsBtn">Save Settings</button>
+                <button class="btn btn-secondary" id="closeEventDetailFooterBtn">Close</button>
             </div>
         </div>
     </div>
 
-    <!-- Audio Player (hidden) -->
-    <audio id="audioPlayer"></audio>
+    <!-- False Positive Modal -->
+    <div class="modal" id="falsePositiveModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Mark False Positive</h2>
+                <button class="modal-close" id="closeFalsePositiveBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="reason-grid">
+                    <button class="reason-option" data-reason="speech">Speech</button>
+                    <button class="reason-option" data-reason="music">Music</button>
+                    <button class="reason-option" data-reason="car">Car</button>
+                    <button class="reason-option" data-reason="kids">Kids</button>
+                    <button class="reason-option" data-reason="lawn equipment">Lawn equipment</button>
+                    <button class="reason-option" data-reason="other noise">Other noise</button>
+                </div>
+                <div class="form-group">
+                    <label for="falsePositiveCustomReason">Optional note</label>
+                    <input type="text" id="falsePositiveCustomReason" class="form-input" placeholder="Short reason">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelFalsePositiveBtn">Cancel</button>
+                <button class="btn btn-primary" id="saveFalsePositiveBtn">Save</button>
+            </div>
+        </div>
+    </div>
 
     <script src="/static/app.js"></script>
 </body>

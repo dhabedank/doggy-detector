@@ -21,20 +21,17 @@ An always-on bark detection system for Raspberry Pi that saves audio clips, dete
    ./scripts/install.sh
    ```
 
-3. Edit config.yaml with your location:
-   ```yaml
-   location:
-     address: "123 Main St, Anytown, USA"
-     lat: 34.0522
-     lon: -118.2437
-   ```
-
-4. Start the service:
+3. Start the service:
    ```bash
    sudo systemctl start doggy-detector
    ```
 
-5. Access the dashboard via Tailscale IP shown during install.
+4. View the startup logs and copy the generated dashboard username/password:
+   ```bash
+   sudo journalctl -u doggy-detector -f
+   ```
+
+5. Access the dashboard via Tailscale IP shown during install, log in with those credentials, then use Settings to set your location and preferences.
 
 ## Local Development
 
@@ -46,7 +43,7 @@ python3.11 -m venv venv
 source venv/bin/activate  # or venv\Scripts\activate on Windows
 
 # Install TensorFlow first, then other dependencies
-pip install tensorflow>=2.15.0
+pip install "tensorflow>=2.15.0"
 pip install -r requirements.txt
 
 # Run
@@ -64,7 +61,7 @@ brew install python@3.11
 source venv/bin/activate
 
 # Install Apple Silicon TensorFlow, then other dependencies
-pip install tensorflow-macos>=2.15.0
+pip install "tensorflow-macos>=2.15.0"
 pip install -r requirements.txt
 
 # Run
@@ -72,6 +69,58 @@ python -m src.main
 ```
 
 Dashboard: http://localhost:8080
+
+The dashboard uses one local login per device. The first startup logs dashboard credentials, and normal restarts keep using those same credentials. The app stores the username and only a bcrypt password hash in `data/events.sqlite`.
+Set `DOG_DETECTOR_AUTH_USERNAME` and `DOG_DETECTOR_AUTH_PASSWORD` before first startup if you want to choose them yourself.
+
+If you forget the dashboard password, reset only the login credentials:
+
+```bash
+touch data/reset-dashboard-login
+sudo systemctl restart doggy-detector
+sudo journalctl -u doggy-detector -f
+```
+
+The restart logs a new password and keeps existing settings, events, clips, and reports.
+For a one-off local run, `DOG_DETECTOR_RESET_AUTH=1 python -m src.main` does the same reset.
+
+## Remote Updates Over Tailscale
+
+After the first install, you can update the unit remotely over Tailscale without plugging in a keyboard, mouse, or monitor.
+
+SSH into the Raspberry Pi:
+
+```bash
+ssh pi@<tailscale-ip>
+cd ~/doggy-detector
+```
+
+Update to a tagged GitHub release:
+
+```bash
+git fetch --tags
+git tag --sort=-v:refname | head
+git checkout v0.0.0  # replace with the release tag you want
+venv/bin/pip install -r requirements.txt
+sudo systemctl restart doggy-detector
+```
+
+Check that the service came back healthy:
+
+```bash
+curl -fsS http://127.0.0.1:8080/health | python3 -m json.tool
+sudo journalctl -u doggy-detector -n 80 --no-pager
+```
+
+If the update does not behave correctly, roll back to the previous release tag:
+
+```bash
+git checkout <previous-release-tag>
+venv/bin/pip install -r requirements.txt
+sudo systemctl restart doggy-detector
+```
+
+Updates replace the application code and Python dependencies only. They do not wipe `data/events.sqlite`, saved clips, report exports, settings, or dashboard login data.
 
 ## Using the Dashboard
 
@@ -89,35 +138,44 @@ Lists all detected bark incidents with:
 - Timestamp and duration
 - Detection confidence score
 - Direction (left/right arrow) - requires stereo mic
-- Play button for audio clips
-- Flag button to mark false positives
+- Details button with larger clip playback, weather, scores, and clip fingerprint
+- False-positive reason picker
+- Delete button to remove test incidents and their saved clips
 
 ### Settings (gear icon)
 
-- **Microphone**: Select specific audio device or auto-detect
-- **Detection Sensitivity**: Threshold for bark detection (0.01-1.0)
+- **Microphone**: Use the system default input or pin a monitoring microphone by name
+- **Detection Threshold**: Exact threshold for bark detection (0.001-1.0)
   - Lower = more sensitive (may catch more false positives)
   - Higher = less sensitive (may miss quieter barks)
-  - Start around 0.1-0.2 and adjust based on results
+  - Fresh installs default to 0.15; use incident scores and calibration data to tune
+- **Barking Sessions**:
+  - Barks to start: detections required before a session becomes real
+  - Silence gap: seconds without a bark above threshold before cooldown starts
+  - Merge window: extra seconds where resumed barking continues the same session
+  - Pre-roll audio: 5/10/15/20 seconds included before the session starts
+  - Minimum duration: very short confirmed sessions below this length are discarded
 - **Location**: Address and coordinates for weather data in reports
 
 ### Reports
 
-Click "Generate Report" to create:
-- **PDF Report**: Formatted document with incident summary and weather context
-- **CSV Export**: Raw data for spreadsheet analysis
-
-### Test Detection
-
-Click "Test Detection" to verify the model works by running a sample audio file through the detector. Useful for troubleshooting when live detection isn't working.
+Click "Export Results" to download a ZIP evidence package containing:
+- **PDF Report**: Formatted document with incident summary, calibration values, weather context, report key, and evidence-package explanation
+- **CSV Export**: Raw data for spreadsheet analysis, including threshold, input-level calibration fields, and full clip hashes
+- **Audio Clips**: Referenced WAV clips for non-false-positive incidents in the report period
 
 ## How Detection Works
 
-1. Audio is captured in 100ms chunks from the microphone
+1. Audio is captured in short chunks from the microphone using the configured detection window
 2. Google's YAMNet model classifies each chunk into 521 sound categories
 3. If dog-related classes (Dog, Bark, Animal, etc.) score above threshold, it's a bark
-4. Multiple barks within 15 seconds are grouped into a single incident
-5. After 15 seconds of silence, the incident ends and is saved with audio
+4. A session starts after the configured number of bark detections
+5. Once a session is confirmed, recording includes the configured pre-roll audio from the rolling buffer
+6. If no bark is detected for the silence gap, the session enters cooldown
+7. If barking returns inside the merge window, the same session continues
+8. If no bark returns, the session is saved after `silence gap + merge window`
+
+With defaults, the detector enters cooldown after 15 seconds without a bark above threshold and saves the session after 25 seconds without a new bark.
 
 ### Mono vs Stereo Mode
 
@@ -128,75 +186,62 @@ The system automatically falls back to mono if stereo isn't available.
 
 ## Configuration
 
-Edit `config.yaml`:
+Runtime settings live in `data/events.sqlite`, not in a live `config.yaml` file. Use the dashboard Settings screen to adjust:
 
-```yaml
-location:
-  address: "Your address for reports"
-  lat: 34.0522      # For weather lookup
-  lon: -118.2437
+- microphone device
+- detection threshold
+- barking session timing
+- report location and weather coordinates
 
-audio:
-  device: null      # null=auto, or device ID (integer)
-  sample_rate: 16000
-  channels: 2
+On first startup only, an existing `config.yaml` is migrated into SQLite and renamed to `config.yaml.migrated` when possible.
 
-detection:
-  threshold: 0.1    # 0.01-1.0, lower=more sensitive
+Set `DOG_DETECTOR_DATA_DIR` if you need the database, clips, and reports somewhere other than `./data`.
 
-incidents:
-  min_barks: 2      # Minimum barks to record incident
-  gap_sec: 15.0     # Seconds of silence to end incident
-
-storage:
-  data_dir: ./data
-  retention_days: 0  # 0=keep forever
-
-web:
-  host: 0.0.0.0
-  port: 8080
-```
-
-### Finding Your Audio Device ID
+### Finding Your Audio Device
 
 ```bash
 python -c "import sounddevice as sd; print(sd.query_devices())"
 ```
 
-Look for your microphone and note its index number.
+Settings stores newly selected microphones by device name and host API, not by index number. This is more stable when other devices like AirPods are connected or removed.
 
 ## Troubleshooting
 
 ### "Input" meter stays at 0
 - Check microphone permissions (System Preferences > Privacy > Microphone)
 - Verify the correct device is selected in Settings
-- Try setting a specific device ID in config.yaml
+- Pin the mounted monitoring microphone in Settings instead of using the system default input
 
 ### Model detects speech/music instead of barks
 - The YAMNet model classifies all sounds - `['Silence', 'Speech', 'Music']` means no dog sounds detected
 - When barks are heard, you'll see `['Dog', 'Bark', 'Animal']`
-- Use "Test Detection" to verify the model works with known bark audio
+- Watch the live Bark score while playing known bark audio near the microphone
 
 ### Detection too sensitive / not sensitive enough
 - Adjust threshold in Settings (gear icon)
-- Lower values (0.05-0.15) = more detections
+- Lower values (0.03-0.15) = more detections
 - Higher values (0.3-0.5) = fewer detections
+- Review each incident's peak score, average score, threshold used, and input level to tune the threshold.
 
 ### Audio device keeps resetting
-- Set explicit device ID in config.yaml instead of `null`
-- Virtual audio devices (Zoom, etc.) can interfere with auto-detection
+- Pin the mounted monitoring microphone by name in Settings instead of using the system default input
+- If a pinned microphone is missing, the detector reports an audio error instead of silently switching to another mic
+- Virtual audio devices and call devices such as AirPods can change the system default input
 
 ## Features
 
 - Continuous audio monitoring (mono or stereo)
 - YAMNet-based bark detection with configurable sensitivity
 - Left/right direction detection (stereo only)
-- Automatic incident grouping with 15-second gap
+- Automatic incident grouping with configurable silence and merge windows
 - Audio clip recording (handles 30+ minute incidents)
 - SHA-256 fingerprints for evidence integrity
 - Weather context for each incident
 - PDF reports and CSV export
 - Web dashboard for review and flagging
+- Test incident deletion from the dashboard
+- Today and all-time summary cards
+- Health details panel
 - Auto-start on boot (Raspberry Pi)
 
 ## Hardware
