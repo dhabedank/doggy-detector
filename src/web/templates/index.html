@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dog Detector - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <h1 class="logo">Dog Detector</h1>
+            <div class="status-indicator">
+                <span class="status-dot" id="statusDot"></span>
+                <span class="status-text" id="statusText">Running</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container">
+        <!-- Navigation Bar -->
+        <nav class="navbar">
+            <div class="nav-left">
+                <div class="filter-group">
+                    <select id="dateFilter" class="filter-select">
+                        <option value="">All Dates</option>
+                        <option value="today">Today</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <select id="falsePositiveFilter" class="filter-select">
+                        <option value="">All Events</option>
+                        <option value="valid">Valid Only</option>
+                        <option value="false_pos">False Positives</option>
+                    </select>
+                </div>
+            </div>
+            <div class="nav-right">
+                <button class="btn btn-secondary" id="generateReportBtn">Generate Report</button>
+                <button class="btn btn-secondary" id="refreshBtn">Refresh</button>
+            </div>
+        </nav>
+
+        <!-- Events Table -->
+        <div class="table-container">
+            <table class="events-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Duration</th>
+                        <th>Score</th>
+                        <th>Direction</th>
+                        <th>Clip</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="eventsTableBody">
+                    <tr class="loading-row">
+                        <td colspan="6">Loading events...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination">
+            <button class="btn btn-pagination" id="prevBtn">← Prev</button>
+            <span class="page-info" id="pageInfo">Page 1 of 1</span>
+            <button class="btn btn-pagination" id="nextBtn">Next →</button>
+        </div>
+    </main>
+
+    <!-- Report Modal -->
+    <div class="modal" id="reportModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Generate Report</h2>
+                <button class="modal-close" id="closeReportBtn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="startDate">Start Date</label>
+                    <input type="date" id="startDate" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label for="endDate">End Date</label>
+                    <input type="date" id="endDate" class="form-input">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancelReportBtn">Cancel</button>
+                <button class="btn btn-primary" id="downloadReportBtn">Download</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio Player (hidden) -->
+    <audio id="audioPlayer"></audio>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
