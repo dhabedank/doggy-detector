@@ -1,6 +1,8 @@
 """FastAPI application setup."""
 
 from pathlib import Path
+import subprocess
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -36,6 +38,7 @@ def create_app(
         storage,
     )
     app.state.project_dir = Path(__file__).resolve().parents[2]
+    app.state.asset_version = _asset_version(app.state.project_dir)
 
     created_credentials = app.state.settings_store.ensure_auth_credentials()
     if app.state.generated_auth_credentials is None:
@@ -70,3 +73,19 @@ def create_app(
         return JSONResponse({"detail": "Authentication required"}, status_code=401)
 
     return app
+
+
+def _asset_version(project_dir: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--always", "--dirty"],
+            cwd=project_dir,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return "dev"
+    if result.returncode != 0:
+        return "dev"
+    return result.stdout.strip() or "dev"

@@ -89,6 +89,7 @@ def test_settings_page_requires_auth(client):
     assert response.status_code == 200
     assert "Incident Timing" in response.text
     assert "Diagnostics" in response.text
+    assert "/static/settings.js?v=" in response.text
 
 
 def test_dashboard_shows_compact_ops_not_full_health_panel(auth_client):
@@ -97,6 +98,7 @@ def test_dashboard_shows_compact_ops_not_full_health_panel(auth_client):
     assert response.status_code == 200
     assert "opsStrip" in response.text
     assert "healthChecks" not in response.text
+    assert "/static/app.js?v=" in response.text
 
 
 def test_dashboard_export_modal_offers_single_zip_package(auth_client):

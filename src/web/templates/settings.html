@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doggy Detector - Settings</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v={{ request.app.state.asset_version }}">
 </head>
 <body>
     <header class="header">
@@ -240,6 +240,6 @@
         </form>
     </main>
 
-    <script src="/static/settings.js"></script>
+    <script src="/static/settings.js?v={{ request.app.state.asset_version }}"></script>
 </body>
 </html>
