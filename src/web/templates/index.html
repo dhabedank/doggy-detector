@@ -4,20 +4,28 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Doggy Detector - Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v={{ request.app.state.asset_version }}">
 </head>
 <body>
-    <!-- Header -->
+    <!-- Masthead -->
     <header class="header">
         <div class="header-content">
-            <h1 class="logo">Doggy Detector</h1>
+            <div class="header-brand">
+                <h1 class="logo">Doggy Detector</h1>
+                <nav class="site-nav" aria-label="Primary">
+                    <a href="/" aria-current="page">Dashboard</a>
+                    <a href="/logs">Logs</a>
+                    <a href="/settings">Settings</a>
+                </nav>
+            </div>
             <div class="header-right">
                 <div class="device-info" id="deviceInfo">
-                    <span class="device-label">Mic:</span>
+                    <span class="device-label">Mic</span>
                     <span class="device-name" id="deviceName">Loading...</span>
                 </div>
-                <a class="btn btn-secondary" href="/logs">Logs</a>
-                <a class="btn btn-icon" id="settingsBtn" href="/settings" title="Settings">&#9881;</a>
                 <div class="status-indicator">
                     <span class="status-dot" id="statusDot"></span>
                     <span class="status-text" id="statusText">Running</span>
@@ -26,29 +34,29 @@
         </div>
     </header>
 
-    <!-- Live Status Bar -->
+    <!-- Live Telemetry Strip -->
     <div class="status-bar" id="statusBar">
         <div class="status-bar-item">
-            <span class="status-bar-label">Input:</span>
+            <span class="status-bar-label">Input</span>
             <div class="level-meter">
                 <div class="level-fill" id="audioLevelFill"></div>
             </div>
             <span class="level-value" id="audioLevelValue">0.00</span>
         </div>
         <div class="status-bar-item">
-            <span class="status-bar-label">Bark:</span>
+            <span class="status-bar-label">Bark</span>
             <div class="level-meter">
                 <div class="level-fill level-fill-score" id="scoreFill"></div>
             </div>
             <span class="level-value" id="scoreValue">0.00</span>
         </div>
         <div class="status-bar-item">
-            <span class="status-bar-label">Status:</span>
+            <span class="status-bar-label">Status</span>
             <span class="detection-status" id="detectionStatus">Listening...</span>
         </div>
         <div class="status-bar-item">
-            <span class="status-bar-label">Chunks:</span>
-            <span id="chunksProcessed">0</span>
+            <span class="status-bar-label">Chunks</span>
+            <span class="level-value" id="chunksProcessed">0</span>
         </div>
     </div>
 
@@ -111,7 +119,7 @@
         </section>
 
         <!-- Deterrence Controls -->
-        <section class="deterrence-console" id="deterrenceConsole">
+        <section class="deterrence-console" id="deterrenceConsole" aria-label="Deterrence controls">
             <div class="deterrence-header">
                 <div>
                     <span class="summary-label">Deterrence</span>
@@ -146,17 +154,17 @@
             </div>
         </section>
 
-        <!-- Navigation Bar -->
-        <nav class="navbar">
+        <!-- Events Toolbar -->
+        <nav class="navbar" aria-label="Event filters">
             <div class="nav-left">
                 <div class="filter-group">
-                    <select id="dateFilter" class="filter-select">
+                    <select id="dateFilter" class="form-input" aria-label="Filter by date">
                         <option value="">All Dates</option>
                         <option value="today">Today</option>
                     </select>
                 </div>
                 <div class="filter-group">
-                    <select id="falsePositiveFilter" class="filter-select">
+                    <select id="falsePositiveFilter" class="form-input" aria-label="Filter by validity">
                         <option value="">All Events</option>
                         <option value="valid">Valid Only</option>
                         <option value="false_pos">False Positives</option>
@@ -199,11 +207,11 @@
     </main>
 
     <!-- Report Modal -->
-    <div class="modal" id="reportModal">
+    <div class="modal" id="reportModal" role="dialog" aria-modal="true" aria-labelledby="reportModalTitle">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Export Results</h2>
-                <button class="modal-close" id="closeReportBtn">&times;</button>
+                <h2 id="reportModalTitle">Export Results</h2>
+                <button class="modal-close" id="closeReportBtn" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="form-group">
@@ -223,11 +231,11 @@
     </div>
 
     <!-- Event Detail Modal -->
-    <div class="modal" id="eventDetailModal">
+    <div class="modal" id="eventDetailModal" role="dialog" aria-modal="true" aria-labelledby="eventDetailModalTitle">
         <div class="modal-content modal-content-wide">
             <div class="modal-header">
-                <h2>Incident Details</h2>
-                <button class="modal-close" id="closeEventDetailBtn">&times;</button>
+                <h2 id="eventDetailModalTitle">Incident Details</h2>
+                <button class="modal-close" id="closeEventDetailBtn" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
                 <audio id="detailAudioPlayer" class="detail-audio" controls></audio>
@@ -286,11 +294,11 @@
     </div>
 
     <!-- False Positive Modal -->
-    <div class="modal" id="falsePositiveModal">
+    <div class="modal" id="falsePositiveModal" role="dialog" aria-modal="true" aria-labelledby="falsePositiveModalTitle">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Mark False Positive</h2>
-                <button class="modal-close" id="closeFalsePositiveBtn">&times;</button>
+                <h2 id="falsePositiveModalTitle">Mark False Positive</h2>
+                <button class="modal-close" id="closeFalsePositiveBtn" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="reason-grid">

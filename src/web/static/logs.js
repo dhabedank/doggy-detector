@@ -31,6 +31,7 @@ function toggleFollow() {
     const button = document.getElementById('logFollowBtn');
     button.textContent = followEnabled ? 'Following' : 'Follow';
     button.classList.toggle('active', followEnabled);
+    button.setAttribute('aria-pressed', String(followEnabled));
 
     if (followTimer) {
         clearInterval(followTimer);

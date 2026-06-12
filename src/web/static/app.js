@@ -113,6 +113,22 @@ function setupEventListeners() {
             hideFalsePositiveModal();
         }
     });
+
+    // Close any open modal with Escape
+    window.addEventListener('keydown', function(event) {
+        if (event.key !== 'Escape') {
+            return;
+        }
+        if (reportModal.classList.contains('show')) {
+            hideReportModal();
+        }
+        if (eventDetailModal.classList.contains('show')) {
+            hideEventDetailModal();
+        }
+        if (falsePositiveModal.classList.contains('show')) {
+            hideFalsePositiveModal();
+        }
+    });
 }
 
 // Fetch events from API
@@ -191,7 +207,7 @@ function renderEvents(events) {
 
         const direction = renderDirection(event.direction);
 
-        const clipButton = `<button class="btn btn-action btn-play" onclick="showEventDetail('${event.id}')">${event.clip_url ? 'Details' : 'Details'}</button>`;
+        const clipButton = `<button class="btn btn-action btn-play" onclick="showEventDetail('${event.id}')">Details</button>`;
 
         const isFlaggedFalsePositive = event.is_false_pos || false;
         const flagButtonClass = isFlaggedFalsePositive ? 'btn-flag flagged' : 'btn-flag';
@@ -217,15 +233,15 @@ function renderEvents(events) {
 
 function renderDirection(direction) {
     if (direction === 'left') {
-        return '<span class="direction-left">←</span>';
+        return '<span class="direction-left" role="img" aria-label="Left">←</span>';
     }
     if (direction === 'right') {
-        return '<span class="direction-right">→</span>';
+        return '<span class="direction-right" role="img" aria-label="Right">→</span>';
     }
     if (direction === 'center') {
-        return '<span class="direction-center">↔</span>';
+        return '<span class="direction-center" role="img" aria-label="Center">↔</span>';
     }
-    return '<span class="direction-unknown">?</span>';
+    return '<span class="direction-unknown" role="img" aria-label="Unknown">?</span>';
 }
 
 // Update pagination controls
@@ -275,6 +291,7 @@ function showFalsePositiveModal(eventId) {
         option.classList.toggle('selected', option.dataset.reason === selectedFalsePositiveReason);
     });
     falsePositiveModal.classList.add('show');
+    document.getElementById('closeFalsePositiveBtn').focus();
 }
 
 function hideFalsePositiveModal() {
@@ -339,6 +356,7 @@ function showEventDetail(eventId) {
     if (cachedEvent) {
         renderEventDetail(cachedEvent);
         eventDetailModal.classList.add('show');
+        document.getElementById('closeEventDetailBtn').focus();
     }
 
     fetch(`/api/events/${eventId}`)
@@ -350,8 +368,12 @@ function showEventDetail(eventId) {
         })
         .then(event => {
             eventCache[event.id] = event;
+            const alreadyOpen = eventDetailModal.classList.contains('show');
             renderEventDetail(event);
             eventDetailModal.classList.add('show');
+            if (!alreadyOpen) {
+                document.getElementById('closeEventDetailBtn').focus();
+            }
         })
         .catch(error => {
             console.error('Error loading event detail:', error);
@@ -418,6 +440,7 @@ function hideEventDetailModal() {
 // Show report modal
 function showReportModal() {
     reportModal.classList.add('show');
+    document.getElementById('closeReportBtn').focus();
 }
 
 // Hide report modal
