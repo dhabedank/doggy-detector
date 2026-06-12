@@ -4,7 +4,7 @@ import tempfile
 import sqlite3
 from datetime import datetime, timedelta
 
-from src.storage import Storage, Event
+from src.storage import Storage, Event, DeterrenceEvent
 
 
 @pytest.fixture
@@ -247,3 +247,37 @@ def test_summarize_events_excludes_false_positives_by_default(temp_storage):
     }
     assert summary_with_false_pos["incident_count"] == 2
     assert summary_with_false_pos["total_duration_sec"] == 25.0
+
+
+def test_deterrence_events_are_saved_and_listed(temp_storage):
+    first_id = temp_storage.save_deterrence_event(DeterrenceEvent(
+        fired_at=datetime(2026, 1, 1, 12, 0, 0),
+        source="manual",
+        mode="audible",
+        profile="chirp",
+        status="fired",
+        bark_score=None,
+        audio_level=None,
+        duration_sec=2.0,
+    ))
+    second_id = temp_storage.save_deterrence_event(DeterrenceEvent(
+        fired_at=datetime(2026, 1, 1, 12, 1, 0),
+        source="auto",
+        mode="ultrasonic",
+        profile="chirp",
+        status="failed",
+        bark_score=0.8,
+        audio_level=0.2,
+        duration_sec=2.0,
+        error="gpio missing",
+    ))
+
+    events = temp_storage.list_deterrence_events()
+
+    assert [event.id for event in events] == [second_id, first_id]
+    assert events[0].source == "auto"
+    assert events[0].error == "gpio missing"
+    assert temp_storage.count_deterrence_events(
+        start_at=datetime(2026, 1, 1),
+        status="fired",
+    ) == 1

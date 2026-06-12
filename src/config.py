@@ -55,6 +55,27 @@ class IncidentsConfig:
 
 
 @dataclass
+class DeterrenceConfig:
+    audible_enabled: bool = False
+    ultrasonic_enabled: bool = False
+    manual_enabled: bool = True
+    auto_enabled: bool = False
+    assertiveness: str = "assertive"
+    bark_score_threshold: float = 0.15
+    cooldown_sec: float = 10.0
+    burst_sec: float = 2.0
+    max_fires_per_incident: int = 3
+    max_fires_per_day: int = 50
+    quiet_hours_enabled: bool = False
+    quiet_hours_start: str = "22:00"
+    quiet_hours_end: str = "07:00"
+    ultrasonic_gpio_pin: Optional[int] = None
+    ultrasonic_active_high: bool = True
+    audible_output_device: Optional[int | str] = None
+    audible_profile: str = "chirp"
+
+
+@dataclass
 class StorageConfig:
     data_dir: Path = field(default_factory=lambda: Path("./data"))
     retention_days: int = 0
@@ -76,6 +97,7 @@ class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     detection: DetectionConfig = field(default_factory=DetectionConfig)
     incidents: IncidentsConfig = field(default_factory=IncidentsConfig)
+    deterrence: DeterrenceConfig = field(default_factory=DeterrenceConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     web: WebConfig = field(default_factory=WebConfig)
 
@@ -90,6 +112,7 @@ def load_config(path: Path) -> Config:
         audio=AudioConfig(**data.get("audio", {})),
         detection=DetectionConfig(**data.get("detection", {})),
         incidents=IncidentsConfig(**data.get("incidents", {})),
+        deterrence=DeterrenceConfig(**data.get("deterrence", {})),
         storage=StorageConfig(**data.get("storage", {})),
         web=WebConfig(**data.get("web", {})),
     )
@@ -114,6 +137,7 @@ def _config_to_sections(config: Config) -> dict[str, dict[str, Any]]:
         "audio": asdict(config.audio),
         "detection": asdict(config.detection),
         "incidents": asdict(config.incidents),
+        "deterrence": asdict(config.deterrence),
         "storage": {"retention_days": config.storage.retention_days},
         "web": asdict(config.web),
     }
@@ -133,6 +157,7 @@ def _config_from_sections(sections: dict[str, dict[str, Any]], data_dir: Path) -
         audio=AudioConfig(**merged["audio"]),
         detection=DetectionConfig(**merged["detection"]),
         incidents=IncidentsConfig(**merged["incidents"]),
+        deterrence=DeterrenceConfig(**merged["deterrence"]),
         storage=StorageConfig(
             data_dir=data_dir,
             retention_days=int(merged["storage"].get("retention_days", 0) or 0),
@@ -212,7 +237,15 @@ class SettingsStore:
     def load_config(self, data_dir: Path) -> Config:
         sections = {
             section: self.get_section(section)
-            for section in ("location", "audio", "detection", "incidents", "storage", "web")
+            for section in (
+                "location",
+                "audio",
+                "detection",
+                "incidents",
+                "deterrence",
+                "storage",
+                "web",
+            )
         }
         return _config_from_sections(sections, data_dir)
 

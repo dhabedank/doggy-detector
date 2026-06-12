@@ -88,6 +88,17 @@ For a one-off local run, `DOG_DETECTOR_RESET_AUTH=1 python -m src.main` does the
 
 After the first install, you can update the unit remotely over Tailscale without plugging in a keyboard, mouse, or monitor.
 
+Installed units check GitHub release tags once per day and show update status in the dashboard Settings page. Daily checks do not auto-install releases. Use the Settings page to check immediately or queue an install sooner.
+
+The updater installs tagged GitHub releases, updates Python dependencies, restarts `doggy-detector`, and writes status/logs under `data/update-state.json`. Runtime data in `data/events.sqlite`, clips, reports, settings, and dashboard login data are left alone.
+
+Create and push releases from your workstation with tags like:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 SSH into the Raspberry Pi:
 
 ```bash
@@ -105,11 +116,26 @@ venv/bin/pip install -r requirements.txt
 sudo systemctl restart doggy-detector
 ```
 
+Check for updates manually:
+
+```bash
+venv/bin/python -m src.updater check
+venv/bin/python -m src.updater status
+```
+
+Queue and apply the latest release from SSH:
+
+```bash
+venv/bin/python -m src.updater request latest
+sudo systemctl start doggy-detector-updater
+```
+
 Check that the service came back healthy:
 
 ```bash
 curl -fsS http://127.0.0.1:8080/health | python3 -m json.tool
 sudo journalctl -u doggy-detector -n 80 --no-pager
+sudo journalctl -u doggy-detector-updater -n 80 --no-pager
 ```
 
 If the update does not behave correctly, roll back to the previous release tag:
@@ -131,6 +157,19 @@ The status bar at the top shows real-time detection info:
 - **Bark**: Detection score (0-1) - how confident the model is it's hearing a bark
 - **Status**: Current state (Listening, BARK DETECTED, INCIDENT IN PROGRESS)
 - **Chunks**: Number of audio chunks processed since startup
+
+### Deterrence / Deterrence
+
+The dashboard includes manual deterrence controls for audible output, ultrasonic output, or both.
+Settings also allow automatic deterrence when bark detections pass a configured threshold.
+
+Deterrence actions are always bounded bursts. The system logs every manual or automatic firing attempt in SQLite with the mode, source, profile, duration, bark score when available, and any actuator error.
+
+Supported output paths:
+- **Audible**: plays a short generated chirp/alarm profile through the configured output device.
+- **Ultrasonic**: pulses a GPIO-controlled relay or optocoupler that triggers an external ultrasonic deterrent.
+
+For ultrasonic hardware, use a powered ultrasonic deterrent/module with its own driver and a triggerable button or low-voltage input. Do not assume a normal speaker, headset adapter, or bare piezo disc can produce useful ultrasonic deterrence from the Pi audio jack alone.
 
 ### Events Table
 
@@ -156,6 +195,7 @@ Lists all detected bark incidents with:
   - Pre-roll audio: 5/10/15/20 seconds included before the session starts
   - Minimum duration: very short confirmed sessions below this length are discarded
 - **Location**: Address and coordinates for weather data in reports
+- **Deterrence**: audible/ultrasonic enablement, manual and automatic firing, burst length, cooldown, maximum automatic firings, quiet hours, GPIO pin, and audible output profile
 
 ### Reports
 

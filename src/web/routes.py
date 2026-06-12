@@ -5,12 +5,13 @@ import io
 import json
 import math
 import zipfile
+from dataclasses import asdict
 from datetime import datetime
 from typing import Optional, Any
 
 from fastapi import APIRouter, Request, Query, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 try:
     from sse_starlette.sse import EventSourceResponse
@@ -18,6 +19,13 @@ except ImportError:
     EventSourceResponse = None
 
 from src.health import build_health
+from src.deterrence import deterrence_event_to_dict
+from src.updater import (
+    check_for_updates,
+    queue_update_request,
+    read_update_status,
+    trigger_update_service,
+)
 from src.web.auth import authenticate_user, clear_auth_cookie, set_auth_cookie
 
 try:
@@ -51,6 +59,34 @@ class SettingsUpdate(BaseModel):
     location_address: Optional[str] = None
     location_lat: Optional[float] = None
     location_lon: Optional[float] = None
+
+
+class DeterrenceSettingsUpdate(BaseModel):
+    audible_enabled: Optional[bool] = None
+    ultrasonic_enabled: Optional[bool] = None
+    manual_enabled: Optional[bool] = None
+    auto_enabled: Optional[bool] = None
+    assertiveness: Optional[str] = None
+    bark_score_threshold: Optional[float] = None
+    cooldown_sec: Optional[float] = None
+    burst_sec: Optional[float] = None
+    max_fires_per_incident: Optional[int] = None
+    max_fires_per_day: Optional[int] = None
+    quiet_hours_enabled: Optional[bool] = None
+    quiet_hours_start: Optional[str] = None
+    quiet_hours_end: Optional[str] = None
+    ultrasonic_gpio_pin: Optional[int] = None
+    ultrasonic_active_high: Optional[bool] = None
+    audible_output_device: Optional[Any] = None
+    audible_profile: Optional[str] = None
+
+
+class DeterrenceFireRequest(BaseModel):
+    modes: list[str] = Field(default_factory=lambda: ["both"])
+
+
+class UpdateRequest(BaseModel):
+    target: str = "latest"
 
 
 @router.get("/")
@@ -227,6 +263,7 @@ async def get_settings(request: Request):
             "lat": config.location.lat,
             "lon": config.location.lon,
         },
+        "deterrence": asdict(config.deterrence),
     }
 
 
@@ -291,6 +328,124 @@ async def update_settings(request: Request, settings: SettingsUpdate):
         "success": True,
         "message": "Settings saved. Restart only if you changed the microphone device.",
     }
+
+
+@router.get("/api/deterrence/settings")
+async def get_deterrence_settings(request: Request):
+    """Get deterrence settings and live state."""
+    controller = request.app.state.deterrence_controller
+    return controller.status()
+
+
+@router.post("/api/deterrence/settings")
+async def update_deterrence_settings(request: Request, settings: DeterrenceSettingsUpdate):
+    """Update deterrence settings and apply them to the live controller."""
+    config = request.app.state.config
+    deterrence = config.deterrence
+
+    if settings.audible_enabled is not None:
+        deterrence.audible_enabled = bool(settings.audible_enabled)
+    if settings.ultrasonic_enabled is not None:
+        deterrence.ultrasonic_enabled = bool(settings.ultrasonic_enabled)
+    if settings.manual_enabled is not None:
+        deterrence.manual_enabled = bool(settings.manual_enabled)
+    if settings.auto_enabled is not None:
+        deterrence.auto_enabled = bool(settings.auto_enabled)
+    if settings.assertiveness is not None:
+        deterrence.assertiveness = settings.assertiveness if settings.assertiveness in {"assertive", "conservative", "custom"} else "custom"
+    if settings.bark_score_threshold is not None:
+        deterrence.bark_score_threshold = _clamp_float(settings.bark_score_threshold, 0.001, 1.0)
+    if settings.cooldown_sec is not None:
+        deterrence.cooldown_sec = _clamp_float(settings.cooldown_sec, 0.0, 3600.0)
+    if settings.burst_sec is not None:
+        deterrence.burst_sec = _clamp_float(settings.burst_sec, 0.1, 10.0)
+    if settings.max_fires_per_incident is not None:
+        deterrence.max_fires_per_incident = _clamp_int(settings.max_fires_per_incident, 1, 100)
+    if settings.max_fires_per_day is not None:
+        deterrence.max_fires_per_day = _clamp_int(settings.max_fires_per_day, 1, 1000)
+    if settings.quiet_hours_enabled is not None:
+        deterrence.quiet_hours_enabled = bool(settings.quiet_hours_enabled)
+    if settings.quiet_hours_start is not None:
+        deterrence.quiet_hours_start = _validate_hhmm(settings.quiet_hours_start, "quiet_hours_start")
+    if settings.quiet_hours_end is not None:
+        deterrence.quiet_hours_end = _validate_hhmm(settings.quiet_hours_end, "quiet_hours_end")
+    if settings.ultrasonic_active_high is not None:
+        deterrence.ultrasonic_active_high = bool(settings.ultrasonic_active_high)
+    if "ultrasonic_gpio_pin" in settings.model_fields_set:
+        deterrence.ultrasonic_gpio_pin = (
+            None
+            if settings.ultrasonic_gpio_pin is None
+            else _clamp_int(settings.ultrasonic_gpio_pin, 0, 27)
+        )
+    if "audible_output_device" in settings.model_fields_set:
+        deterrence.audible_output_device = _normalize_optional_device(settings.audible_output_device)
+    if settings.audible_profile is not None:
+        deterrence.audible_profile = settings.audible_profile if settings.audible_profile in {"chirp", "alarm"} else "chirp"
+
+    request.app.state.settings_store.update_config(config)
+    request.app.state.deterrence_controller.update_config(deterrence)
+
+    return {
+        "success": True,
+        "deterrence": asdict(deterrence),
+        "status": request.app.state.deterrence_controller.status(),
+    }
+
+
+@router.post("/api/deterrence/fire")
+async def fire_deterrence(request: Request, fire_request: DeterrenceFireRequest):
+    """Manually fire one or more deterrence modes."""
+    controller = request.app.state.deterrence_controller
+    events = controller.manual_fire(fire_request.modes)
+    return {
+        "success": any(event.status == "fired" for event in events),
+        "events": [deterrence_event_to_dict(event) for event in events],
+        "status": controller.status(),
+    }
+
+
+@router.get("/api/deterrence/events")
+async def list_deterrence_events(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+):
+    """List recent deterrence firing attempts."""
+    events = request.app.state.storage.list_deterrence_events(limit=limit)
+    return {"events": [deterrence_event_to_dict(event) for event in events]}
+
+
+@router.get("/api/update/status")
+async def get_update_status(request: Request):
+    """Return current version, latest known release, and updater state."""
+    return read_update_status(
+        project_dir=request.app.state.project_dir,
+        data_dir=request.app.state.storage.data_dir,
+    )
+
+
+@router.post("/api/update/check")
+async def check_update_status(request: Request):
+    """Check GitHub release tags now."""
+    try:
+        return check_for_updates(
+            project_dir=request.app.state.project_dir,
+            data_dir=request.app.state.storage.data_dir,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Update check failed: {exc}")
+
+
+@router.post("/api/update/request")
+async def request_update_install(request: Request, update_request: UpdateRequest):
+    """Queue an update request and ask systemd to run the updater service."""
+    status = queue_update_request(
+        target=update_request.target,
+        project_dir=request.app.state.project_dir,
+        data_dir=request.app.state.storage.data_dir,
+    )
+    trigger = trigger_update_service()
+    status["service_trigger"] = trigger
+    return status
 
 
 @router.get("/api/summary")
@@ -607,6 +762,7 @@ async def export_csv(
 def _build_status_payload(request: Request) -> dict[str, Any]:
     config = request.app.state.config
     detector = getattr(request.app.state, "detector", None)
+    deterrence_controller = request.app.state.deterrence_controller
 
     current_device = config.audio.device
     device_name = "System default input"
@@ -656,6 +812,7 @@ def _build_status_payload(request: Request) -> dict[str, Any]:
         "audio_device": device_name,
         "threshold": config.detection.threshold,
         "health": health,
+        "deterrence": deterrence_controller.status(),
         **live_status,
     }
 
@@ -683,3 +840,37 @@ def _event_to_dict(event) -> dict[str, Any]:
         "weather_conditions": event.weather_conditions,
         "clip_url": f"/api/{event.clip_path}" if event.clip_path else None,
     }
+
+
+def _clamp_float(value: float, low: float, high: float) -> float:
+    numeric = float(value)
+    if not math.isfinite(numeric):
+        raise HTTPException(status_code=400, detail="Value must be finite")
+    return max(low, min(high, numeric))
+
+
+def _clamp_int(value: int, low: int, high: int) -> int:
+    return max(low, min(high, int(value)))
+
+
+def _validate_hhmm(value: str, field_name: str) -> str:
+    try:
+        hour_text, minute_text = value.split(":", 1)
+        hour = int(hour_text)
+        minute = int(minute_text)
+    except (AttributeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be HH:MM")
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be HH:MM")
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _normalize_optional_device(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, str) and value.strip().lower() in {"", "auto"}:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value

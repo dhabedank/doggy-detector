@@ -28,6 +28,13 @@ def test_load_config_from_file():
             "min_duration_sec": 1.0,
             "merge_within_sec": 10.0,
         },
+        "deterrence": {
+            "audible_enabled": True,
+            "ultrasonic_enabled": True,
+            "auto_enabled": True,
+            "cooldown_sec": 4.0,
+            "ultrasonic_gpio_pin": 17,
+        },
         "storage": {"data_dir": "./data", "retention_days": 0},
         "web": {"host": "0.0.0.0", "port": 8080},
     }
@@ -43,6 +50,8 @@ def test_load_config_from_file():
     assert config.audio.sample_rate == 16000
     assert config.detection.threshold == 0.5
     assert config.incidents.gap_sec == 3.0
+    assert config.deterrence.auto_enabled is True
+    assert config.deterrence.ultrasonic_gpio_pin == 17
     assert config.storage.data_dir == Path("./data")
     assert config.web.port == 8080
 
@@ -61,6 +70,8 @@ def test_load_config_uses_defaults():
     assert config.audio.sample_rate == 16000
     assert config.audio.channels == 2
     assert config.detection.threshold == 0.15
+    assert config.deterrence.manual_enabled is True
+    assert config.deterrence.auto_enabled is False
     assert config.web.port == 8080
 
     config_path.unlink()
@@ -77,6 +88,7 @@ def test_runtime_config_seeds_sqlite_defaults():
         assert config.storage.data_dir == data_dir
         assert config.audio.sample_rate == 16000
         assert store.get_section("audio")["device"] is None
+        assert store.get_section("deterrence")["manual_enabled"] is True
         assert credentials is not None
         assert credentials["username"] == "admin"
         assert store.get(AUTH_USERNAME_KEY) == "admin"
