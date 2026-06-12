@@ -201,6 +201,39 @@ body {
     display: flex;
     align-items: center;
     gap: 0.45rem;
+    position: relative;
+    cursor: help;
+}
+
+.status-indicator::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    top: calc(100% + 0.6rem);
+    right: 0;
+    width: max-content;
+    max-width: 320px;
+    background-color: var(--ink-2);
+    border: 1px solid var(--ink-border);
+    color: var(--text-on-ink);
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+    line-height: 1.45;
+    white-space: pre-line;
+    padding: 0.45rem 0.65rem;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s;
+    z-index: 200;
+}
+
+.status-indicator:hover::after,
+.status-indicator:focus-visible::after {
+    opacity: 1;
 }
 
 .status-text {
@@ -259,6 +292,7 @@ body {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    min-width: 0;
 }
 
 .status-bar-label {
@@ -296,6 +330,10 @@ body {
     font-family: var(--font-mono);
     font-size: 0.75rem;
     font-weight: 500;
+    max-width: 24rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .detection-status.listening {

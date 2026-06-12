@@ -537,15 +537,18 @@ function updateStatusDisplay(data) {
         statusDot.classList.add(healthState === 'warn' ? 'warn' : 'critical');
     }
     statusText.textContent = healthState.toUpperCase();
-    statusText.title = healthProblems.length > 0 ? healthProblems.join(' | ') : 'All health checks are OK';
-    statusDot.title = statusText.title;
+    document.getElementById('statusIndicator').dataset.tooltip = healthProblems.length > 0
+        ? healthProblems.join('\n')
+        : 'All health checks are OK';
     renderOperationsSummary(data, health);
     renderDeterrenceStatus(data.deterrence || {});
 
     // Update detection status
     detectionStatus.classList.remove('listening', 'barking', 'incident', 'error');
+    detectionStatus.removeAttribute('title');
     if (data.audio_error) {
-        detectionStatus.textContent = 'AUDIO ERROR: ' + data.audio_error;
+        detectionStatus.textContent = 'AUDIO ERROR';
+        detectionStatus.title = data.audio_error;
         detectionStatus.classList.add('error');
     } else if (data.active_incident) {
         detectionStatus.textContent = 'INCIDENT IN PROGRESS';
