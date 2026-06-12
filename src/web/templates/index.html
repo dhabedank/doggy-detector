@@ -109,6 +109,42 @@
             </div>
         </section>
 
+        <!-- Deterrence Controls -->
+        <section class="deterrence-console" id="deterrenceConsole">
+            <div class="deterrence-header">
+                <div>
+                    <span class="summary-label">Relief</span>
+                    <strong id="deterrenceArmState">Disarmed</strong>
+                </div>
+                <div class="deterrence-actions">
+                    <button class="btn btn-primary" id="fireBothBtn">Fire Both</button>
+                    <button class="btn btn-secondary" id="fireAudibleBtn">Audible</button>
+                    <button class="btn btn-secondary" id="fireUltrasonicBtn">Ultrasonic</button>
+                </div>
+            </div>
+            <div class="deterrence-grid">
+                <div>
+                    <span class="ops-label">Cooldown</span>
+                    <strong id="deterrenceCooldown">-</strong>
+                </div>
+                <div>
+                    <span class="ops-label">Today</span>
+                    <strong id="deterrenceToday">0 fires</strong>
+                </div>
+                <div>
+                    <span class="ops-label">Last fire</span>
+                    <strong id="deterrenceLast">None</strong>
+                </div>
+                <div>
+                    <span class="ops-label">Last error</span>
+                    <strong id="deterrenceError">None</strong>
+                </div>
+            </div>
+            <div class="deterrence-log" id="deterrenceEvents">
+                <div class="deterrence-empty">No deterrence events yet.</div>
+            </div>
+        </section>
+
         <!-- Navigation Bar -->
         <nav class="navbar">
             <div class="nav-left">

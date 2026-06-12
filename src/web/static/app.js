@@ -14,6 +14,7 @@ let falsePositiveModal = null;
 let pendingFalsePositiveEventId = null;
 let selectedFalsePositiveReason = 'speech';
 let eventCache = {};
+let deterrenceRequestInFlight = false;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -22,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
     fetchEvents();
     fetchSummary();
     fetchStatus();
+    fetchDeterrenceEvents();
 
     // Set today's date as default for report modal
     const today = new Date().toISOString().split('T')[0];
@@ -61,6 +63,9 @@ function setupEventListeners() {
     document.getElementById('closeReportBtn').addEventListener('click', hideReportModal);
     document.getElementById('cancelReportBtn').addEventListener('click', hideReportModal);
     document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
+    document.getElementById('fireBothBtn').addEventListener('click', () => fireDeterrence(['both']));
+    document.getElementById('fireAudibleBtn').addEventListener('click', () => fireDeterrence(['audible']));
+    document.getElementById('fireUltrasonicBtn').addEventListener('click', () => fireDeterrence(['ultrasonic']));
 
     // Event detail modal listeners
     document.getElementById('closeEventDetailBtn').addEventListener('click', hideEventDetailModal);
@@ -512,6 +517,7 @@ function updateStatusDisplay(data) {
     statusText.title = healthProblems.length > 0 ? healthProblems.join(' | ') : 'All health checks are OK';
     statusDot.title = statusText.title;
     renderOperationsSummary(data, health);
+    renderDeterrenceStatus(data.deterrence || {});
 
     // Update detection status
     detectionStatus.classList.remove('listening', 'barking', 'incident', 'error');
@@ -532,6 +538,84 @@ function updateStatusDisplay(data) {
         detectionStatus.textContent = 'Starting...';
         detectionStatus.classList.add('listening');
     }
+}
+
+function fireDeterrence(modes) {
+    deterrenceRequestInFlight = true;
+    setDeterrenceButtonsDisabled(true);
+    fetch('/api/deterrence/fire', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({modes})
+    })
+        .then(response => response.json())
+        .then(data => {
+            renderDeterrenceStatus(data.status || {});
+            fetchDeterrenceEvents();
+        })
+        .catch(error => {
+            console.error('Error firing deterrence:', error);
+            document.getElementById('deterrenceError').textContent = 'Request failed';
+        })
+        .finally(() => {
+            deterrenceRequestInFlight = false;
+            fetchStatus();
+        });
+}
+
+function setDeterrenceButtonsDisabled(disabled) {
+    ['fireBothBtn', 'fireAudibleBtn', 'fireUltrasonicBtn'].forEach(id => {
+        document.getElementById(id).disabled = disabled;
+    });
+}
+
+function renderDeterrenceStatus(deterrence) {
+    const settings = deterrence.settings || {};
+    const enabledModes = deterrence.enabled_modes || [];
+    const autoText = settings.auto_enabled ? 'Auto armed' : 'Manual';
+    const modeText = enabledModes.length ? enabledModes.join(' + ') : 'no output';
+    const lastEvent = deterrence.last_event || null;
+
+    document.getElementById('deterrenceArmState').textContent = `${autoText} / ${modeText}`;
+    document.getElementById('deterrenceCooldown').textContent =
+        `${Number(deterrence.cooldown_remaining_sec || 0).toFixed(1)}s`;
+    document.getElementById('deterrenceToday').textContent =
+        `${deterrence.successful_fires_today || 0} fires`;
+    document.getElementById('deterrenceLast').textContent = lastEvent
+        ? `${lastEvent.mode} ${timeAgo(lastEvent.fired_at)}`
+        : 'None';
+    document.getElementById('deterrenceError').textContent = deterrence.last_error || 'None';
+
+    const manualEnabled = settings.manual_enabled !== false;
+    document.getElementById('fireBothBtn').disabled =
+        deterrenceRequestInFlight || !manualEnabled || enabledModes.length === 0;
+    document.getElementById('fireAudibleBtn').disabled =
+        deterrenceRequestInFlight || !manualEnabled || !enabledModes.includes('audible');
+    document.getElementById('fireUltrasonicBtn').disabled =
+        deterrenceRequestInFlight || !manualEnabled || !enabledModes.includes('ultrasonic');
+}
+
+function fetchDeterrenceEvents() {
+    fetch('/api/deterrence/events?limit=8')
+        .then(response => response.json())
+        .then(data => renderDeterrenceEvents(data.events || []))
+        .catch(error => console.error('Error loading deterrence events:', error));
+}
+
+function renderDeterrenceEvents(events) {
+    const container = document.getElementById('deterrenceEvents');
+    if (!events.length) {
+        container.innerHTML = '<div class="deterrence-empty">No deterrence events yet.</div>';
+        return;
+    }
+    container.innerHTML = events.map(event => `
+        <div class="deterrence-event deterrence-event-${event.status}">
+            <span>${escapeHtml(event.status)}</span>
+            <strong>${escapeHtml(event.mode)}</strong>
+            <span>${escapeHtml(event.source)} · ${escapeHtml(timeAgo(event.fired_at))}</span>
+            <em>${escapeHtml(event.error || `${Number(event.duration_sec || 0).toFixed(1)}s`)}</em>
+        </div>
+    `).join('');
 }
 
 function renderOperationsSummary(data, health) {
@@ -584,6 +668,21 @@ function formatUptime(startupAt) {
         return '-';
     }
     return formatDuration((Date.now() - started.getTime()) / 1000);
+}
+
+function timeAgo(value) {
+    if (!value) {
+        return '-';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return '-';
+    }
+    const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000);
+    if (seconds < 5) {
+        return 'just now';
+    }
+    return `${formatDuration(seconds)} ago`;
 }
 
 // Connect to Server-Sent Events for live status (no polling, no log spam)

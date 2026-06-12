@@ -7,25 +7,28 @@ telling different stories.
 ## The Short Version
 
 Dog Detector is a small always-on system that runs at home on a Raspberry Pi.
-It listens for barking, saves a short audio clip when barking happens, makes a
-best guess about which known dog barked, and builds a report that can be handed
-to animal control, an HOA, or another authority.
+It listens for barking, can fire local sonic deterrence, saves a short audio
+clip when barking happens, makes a best guess about which known dog barked, and
+builds a report that can be handed to animal control, an HOA, or another
+authority.
 
 The product is for one specific problem:
 
-> Two nearby dogs bark often. The owner needs a clear record of when it
-> happened, how long it lasted, which dog it most likely was, and proof that
-> the saved clips were not edited.
+> Two nearby dogs bark often. The owner needs local automated relief when the
+> barking happens, plus a clear record of when it happened, how long it lasted,
+> which dog it most likely was, and proof that the saved clips were not edited.
 
 This is not a general smart speaker, security camera, cloud service, or legal
-automation tool. It is a local evidence notebook for repeated barking.
+automation tool. It is a local relief and evidence system for repeated barking.
 
 ## Current MVP Status
 
 The current implementation covers the local dashboard, YAMNet bark detection,
 left/right direction estimate when stereo audio is available, incident storage,
 clip playback, false-positive flagging, PDF/CSV report export, SQLite-backed
-settings, simple dashboard username/password auth, and health reporting.
+settings, simple dashboard username/password auth, health reporting, and local
+manual/automatic sonic deterrence controls. The headless install also supports
+daily GitHub release checks and dashboard-queued release updates.
 
 The following PRD capabilities remain roadmap items and should not be described
 as shipped behavior until implemented: dog identity learning, owner-corrected
@@ -77,6 +80,47 @@ that a saved clip includes a little sound from before and after the bark.
 If the microphone stops sending audio, the system must notice and show a health
 problem. It should not quietly sit there looking healthy while recording
 nothing.
+
+### Fire Local Deterrence
+
+The owner must be able to manually fire deterrence from the dashboard. The
+system should also be able to automatically fire deterrence when bark detections
+pass the configured threshold.
+
+Deterrence must support:
+
+- audible bursts through a configured output device,
+- an external ultrasonic deterrent triggered through GPIO relay/optocoupler
+  control,
+- enabling audible, ultrasonic, or both modes,
+- cooldown and maximum firing limits,
+- quiet hours,
+- and a local log of every manual or automatic firing attempt.
+
+Every deterrence action must be a bounded burst. The system must never leave a
+speaker, relay, or ultrasonic device stuck on continuously.
+
+### Update Headless Device
+
+The owner must be able to tell whether the remote Raspberry Pi is current
+without attaching a keyboard or monitor.
+
+The system must support:
+
+- checking GitHub release tags on a daily timer,
+- showing installed version, latest known release, updater state, and recent
+  updater logs in the dashboard,
+- manually checking for updates from the dashboard,
+- manually queueing a release install from the dashboard,
+- installing Python dependencies after checkout,
+- restarting the detector service after a successful update,
+- and preserving SQLite data, clips, reports, settings, and dashboard login
+  data across updates.
+
+Daily checks must not automatically install releases unless that behavior is
+explicitly enabled in a future version. Failed updates should leave a clear
+error in updater status and should attempt to roll back to the previous Git
+reference when checkout or dependency installation fails.
 
 ### Detect Barking
 
@@ -288,7 +332,7 @@ email-based login.
 Dog Detector should not:
 
 - stream live audio to the cloud,
-- act as a two-way speaker,
+- act as a two-way conversation speaker,
 - contact animal control automatically,
 - become a multi-user hosted service,
 - try to recognize every possible animal or noise,

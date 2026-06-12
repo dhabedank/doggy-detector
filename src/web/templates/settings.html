@@ -113,6 +113,114 @@
 
             <section class="settings-section">
                 <div class="section-header">
+                    <h2>Deterrence</h2>
+                </div>
+                <div class="form-grid">
+                    <label class="toggle-row">
+                        <input type="checkbox" id="deterrenceAudibleEnabled">
+                        <span>Audible output</span>
+                    </label>
+                    <label class="toggle-row">
+                        <input type="checkbox" id="deterrenceUltrasonicEnabled">
+                        <span>Ultrasonic trigger</span>
+                    </label>
+                    <label class="toggle-row">
+                        <input type="checkbox" id="deterrenceManualEnabled">
+                        <span>Manual controls</span>
+                    </label>
+                    <label class="toggle-row">
+                        <input type="checkbox" id="deterrenceAutoEnabled">
+                        <span>Automatic firing</span>
+                    </label>
+                    <div class="form-group">
+                        <label for="deterrenceThreshold">Auto threshold</label>
+                        <input type="number" id="deterrenceThreshold" class="form-input" min="0.001" max="1" step="0.001">
+                    </div>
+                    <div class="form-group">
+                        <label for="deterrenceCooldownSec">Cooldown seconds</label>
+                        <input type="number" id="deterrenceCooldownSec" class="form-input" min="0" max="3600" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="deterrenceBurstSec">Burst seconds</label>
+                        <input type="number" id="deterrenceBurstSec" class="form-input" min="0.1" max="10" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label for="deterrenceMaxIncident">Max per incident</label>
+                        <input type="number" id="deterrenceMaxIncident" class="form-input" min="1" max="100" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="deterrenceMaxDay">Max per day</label>
+                        <input type="number" id="deterrenceMaxDay" class="form-input" min="1" max="1000" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="deterrenceProfile">Audible profile</label>
+                        <select id="deterrenceProfile" class="form-input">
+                            <option value="chirp">Chirp sweep</option>
+                            <option value="alarm">Alternating alarm</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="deterrenceOutputDevice">Output device</label>
+                        <input type="text" id="deterrenceOutputDevice" class="form-input" placeholder="auto">
+                    </div>
+                    <div class="form-group">
+                        <label for="deterrenceGpioPin">Ultrasonic GPIO pin</label>
+                        <input type="number" id="deterrenceGpioPin" class="form-input" min="0" max="27" step="1" placeholder="none">
+                    </div>
+                    <label class="toggle-row">
+                        <input type="checkbox" id="deterrenceActiveHigh">
+                        <span>GPIO active high</span>
+                    </label>
+                    <label class="toggle-row">
+                        <input type="checkbox" id="deterrenceQuietEnabled">
+                        <span>Quiet hours</span>
+                    </label>
+                    <div class="form-group">
+                        <label for="deterrenceQuietStart">Quiet start</label>
+                        <input type="time" id="deterrenceQuietStart" class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="deterrenceQuietEnd">Quiet end</label>
+                        <input type="time" id="deterrenceQuietEnd" class="form-input">
+                    </div>
+                </div>
+            </section>
+
+            <section class="settings-section update-section">
+                <div class="section-header">
+                    <h2>Software Updates</h2>
+                    <button class="btn btn-secondary" type="button" id="updateCheckBtn">Check</button>
+                </div>
+                <div class="update-grid">
+                    <div>
+                        <span class="ops-label">Installed</span>
+                        <strong id="updateCurrentVersion">Loading</strong>
+                    </div>
+                    <div>
+                        <span class="ops-label">Latest</span>
+                        <strong id="updateLatestVersion">Unknown</strong>
+                    </div>
+                    <div>
+                        <span class="ops-label">State</span>
+                        <strong id="updateState">Loading</strong>
+                    </div>
+                    <div>
+                        <span class="ops-label">Last Check</span>
+                        <strong id="updateLastCheck">Never</strong>
+                    </div>
+                </div>
+                <div class="update-actions">
+                    <input type="text" id="updateTarget" class="form-input" placeholder="latest">
+                    <button class="btn btn-primary" type="button" id="updateInstallBtn">Install</button>
+                </div>
+                <div class="update-message" id="updateMessage">Waiting for update status...</div>
+                <div class="update-log" id="updateLog">
+                    <div class="health-empty">No update logs yet.</div>
+                </div>
+            </section>
+
+            <section class="settings-section">
+                <div class="section-header">
                     <h2>Diagnostics</h2>
                     <button class="btn btn-secondary" type="button" id="refreshHealthBtn">Refresh</button>
                 </div>

@@ -29,6 +29,7 @@ def build_health(
     status = getattr(detector, "status", {}) if detector is not None else {}
 
     _add_detector_checks(checks, detector, status, generated_at, config)
+    _add_deterrence_checks(checks, detector, config)
     _add_disk_check(checks, storage.data_dir)
     _add_temperature_check(checks)
     _add_load_check(checks)
@@ -146,6 +147,37 @@ def _add_detector_checks(
         _add_check(checks, "queue_drops", "warn", f"{queue_drops} audio chunks were dropped")
     else:
         _add_check(checks, "queue_drops", "ok", "No queue drops")
+
+
+def _add_deterrence_checks(checks: list[dict[str, str]], detector: Optional[Any], config: Config) -> None:
+    deterrence = config.deterrence
+    enabled_modes = []
+    if deterrence.audible_enabled:
+        enabled_modes.append("audible")
+    if deterrence.ultrasonic_enabled:
+        enabled_modes.append("ultrasonic")
+
+    if deterrence.auto_enabled and not enabled_modes:
+        _add_check(checks, "deterrence", "warn", "Auto deterrence is armed but no output mode is enabled")
+    elif deterrence.auto_enabled:
+        _add_check(checks, "deterrence", "ok", f"Auto deterrence armed for {', '.join(enabled_modes)}")
+    elif deterrence.manual_enabled:
+        _add_check(checks, "deterrence", "ok", "Manual deterrence controls are available")
+    else:
+        _add_check(checks, "deterrence", "ok", "Deterrence is disabled")
+
+    if deterrence.ultrasonic_enabled and deterrence.ultrasonic_gpio_pin is None:
+        _add_check(checks, "ultrasonic_trigger", "warn", "Ultrasonic mode is enabled but no GPIO pin is configured")
+    elif deterrence.ultrasonic_enabled:
+        _add_check(checks, "ultrasonic_trigger", "ok", f"Ultrasonic trigger uses GPIO {deterrence.ultrasonic_gpio_pin}")
+    else:
+        _add_check(checks, "ultrasonic_trigger", "ok", "Ultrasonic trigger is disabled")
+
+    controller = getattr(detector, "deterrence_controller", None)
+    if controller is not None and getattr(controller, "last_error", None):
+        _add_check(checks, "deterrence_last_error", "warn", str(controller.last_error))
+    else:
+        _add_check(checks, "deterrence_last_error", "ok", "No deterrence actuator errors reported")
 
 
 def _add_disk_check(checks: list[dict[str, str]], data_dir: Path) -> None:
