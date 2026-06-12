@@ -21,11 +21,26 @@ local-test-data/
 local-ui-smoke-data/
 *.db
 *.sqlite
+*.sqlite-*
 config.yaml
 config.yaml.migrated
 
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+
+# Private planning notes
+docs/PRD.md
+docs/private/
+
 # Logs
 *.log
+logs/
 
 # Test artifacts
 .pytest_cache/
@@ -33,3 +48,7 @@ config.yaml.migrated
 htmlcov/
 tests/dog_detector_report_*/
 tests/dog_detector_report_*.zip
+
+# Build artifacts
+build/
+dist/

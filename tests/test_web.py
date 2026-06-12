@@ -515,20 +515,20 @@ def test_update_audio_device_saves_pinned_device_key(auth_client):
 
 def test_update_location_accepts_precise_google_coordinates(auth_client):
     response = auth_client.post("/api/settings", json={
-        "location_lat": 40.000000,
-        "location_lon": -105.000000,
+        "location_lat": 40.0,
+        "location_lon": -105.0,
     })
 
     assert response.status_code == 200
     settings = auth_client.get("/api/settings").json()
-    assert settings["location"]["lat"] == 40.000000
-    assert settings["location"]["lon"] == -105.000000
+    assert settings["location"]["lat"] == 40.0
+    assert settings["location"]["lon"] == -105.0
 
 
 def test_update_location_rejects_out_of_range_coordinates(auth_client):
     response = auth_client.post("/api/settings", json={
         "location_lat": 100.0,
-        "location_lon": -105.000000,
+        "location_lon": -105.0,
     })
 
     assert response.status_code == 400
