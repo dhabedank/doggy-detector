@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setupSettingsListeners();
     loadSettingsPage();
     loadHealthDetails();
+    loadUpdateStatus();
 });
 
 function setupSettingsListeners() {
@@ -29,6 +30,8 @@ function setupSettingsListeners() {
     });
 
     document.getElementById('refreshHealthBtn').addEventListener('click', loadHealthDetails);
+    document.getElementById('updateCheckBtn').addEventListener('click', checkForUpdates);
+    document.getElementById('updateInstallBtn').addEventListener('click', requestUpdateInstall);
 }
 
 function loadSettingsPage() {
@@ -74,6 +77,7 @@ function populateSettings(settingsData) {
     const detection = settingsData.detection || {};
     const incidents = settingsData.incidents || {};
     const location = settingsData.location || {};
+    const deterrence = settingsData.deterrence || {};
 
     const threshold = detection.threshold ?? 0.15;
     document.getElementById('threshold').value = threshold;
@@ -86,6 +90,22 @@ function populateSettings(settingsData) {
     document.getElementById('locationAddress').value = location.address || '';
     document.getElementById('locationLat').value = location.lat ?? '';
     document.getElementById('locationLon').value = location.lon ?? '';
+    document.getElementById('deterrenceAudibleEnabled').checked = Boolean(deterrence.audible_enabled);
+    document.getElementById('deterrenceUltrasonicEnabled').checked = Boolean(deterrence.ultrasonic_enabled);
+    document.getElementById('deterrenceManualEnabled').checked = deterrence.manual_enabled !== false;
+    document.getElementById('deterrenceAutoEnabled').checked = Boolean(deterrence.auto_enabled);
+    document.getElementById('deterrenceThreshold').value = deterrence.bark_score_threshold ?? 0.15;
+    document.getElementById('deterrenceCooldownSec').value = deterrence.cooldown_sec ?? 10;
+    document.getElementById('deterrenceBurstSec').value = deterrence.burst_sec ?? 2;
+    document.getElementById('deterrenceMaxIncident').value = deterrence.max_fires_per_incident ?? 3;
+    document.getElementById('deterrenceMaxDay').value = deterrence.max_fires_per_day ?? 50;
+    document.getElementById('deterrenceProfile').value = deterrence.audible_profile || 'chirp';
+    document.getElementById('deterrenceOutputDevice').value = deterrence.audible_output_device ?? '';
+    document.getElementById('deterrenceGpioPin').value = deterrence.ultrasonic_gpio_pin ?? '';
+    document.getElementById('deterrenceActiveHigh').checked = deterrence.ultrasonic_active_high !== false;
+    document.getElementById('deterrenceQuietEnabled').checked = Boolean(deterrence.quiet_hours_enabled);
+    document.getElementById('deterrenceQuietStart').value = deterrence.quiet_hours_start || '22:00';
+    document.getElementById('deterrenceQuietEnd').value = deterrence.quiet_hours_end || '07:00';
 }
 
 function saveSettings() {
@@ -106,19 +126,49 @@ function saveSettings() {
         location_lat: lat ? parseFloat(lat) : null,
         location_lon: lon ? parseFloat(lon) : null
     };
+    const gpioPin = document.getElementById('deterrenceGpioPin').value;
+    const outputDevice = document.getElementById('deterrenceOutputDevice').value;
+    const deterrenceSettings = {
+        audible_enabled: document.getElementById('deterrenceAudibleEnabled').checked,
+        ultrasonic_enabled: document.getElementById('deterrenceUltrasonicEnabled').checked,
+        manual_enabled: document.getElementById('deterrenceManualEnabled').checked,
+        auto_enabled: document.getElementById('deterrenceAutoEnabled').checked,
+        assertiveness: 'assertive',
+        bark_score_threshold: clampThreshold(document.getElementById('deterrenceThreshold').value),
+        cooldown_sec: parseFloat(document.getElementById('deterrenceCooldownSec').value),
+        burst_sec: parseFloat(document.getElementById('deterrenceBurstSec').value),
+        max_fires_per_incident: parseInt(document.getElementById('deterrenceMaxIncident').value, 10),
+        max_fires_per_day: parseInt(document.getElementById('deterrenceMaxDay').value, 10),
+        audible_profile: document.getElementById('deterrenceProfile').value,
+        audible_output_device: outputDevice ? outputDevice : null,
+        ultrasonic_gpio_pin: gpioPin ? parseInt(gpioPin, 10) : null,
+        ultrasonic_active_high: document.getElementById('deterrenceActiveHigh').checked,
+        quiet_hours_enabled: document.getElementById('deterrenceQuietEnabled').checked,
+        quiet_hours_start: document.getElementById('deterrenceQuietStart').value || '22:00',
+        quiet_hours_end: document.getElementById('deterrenceQuietEnd').value || '07:00'
+    };
 
-    fetch('/api/settings', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(settings)
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            status.textContent = data.message;
+    Promise.all([
+        fetch('/api/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(settings)
+        }).then(response => response.json()),
+        fetch('/api/deterrence/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(deterrenceSettings)
+        }).then(response => response.json())
+    ])
+    .then(([settingsResult, deterrenceResult]) => {
+        if (settingsResult.success && deterrenceResult.success) {
+            status.textContent = settingsResult.message;
             loadSettingsPage();
+            loadHealthDetails();
         } else {
             status.textContent = 'Error saving settings.';
         }
@@ -164,6 +214,126 @@ function loadHealthDetails() {
             document.getElementById('settingsHealthChecks').innerHTML =
                 '<div class="health-empty">Could not load health checks.</div>';
         });
+}
+
+function loadUpdateStatus() {
+    fetch('/api/update/status')
+        .then(response => response.json())
+        .then(renderUpdateStatus)
+        .catch(error => {
+            console.error('Error loading update status:', error);
+            document.getElementById('updateMessage').textContent = 'Could not load update status.';
+        });
+}
+
+function checkForUpdates() {
+    const button = document.getElementById('updateCheckBtn');
+    button.disabled = true;
+    document.getElementById('updateMessage').textContent = 'Checking for releases...';
+    fetch('/api/update/check', {method: 'POST'})
+        .then(response => response.json())
+        .then(data => {
+            if (data.detail) {
+                document.getElementById('updateMessage').textContent = data.detail;
+                return;
+            }
+            renderUpdateStatus(data);
+        })
+        .catch(error => {
+            console.error('Error checking updates:', error);
+            document.getElementById('updateMessage').textContent = 'Update check failed.';
+        })
+        .finally(() => {
+            button.disabled = false;
+        });
+}
+
+function requestUpdateInstall() {
+    const button = document.getElementById('updateInstallBtn');
+    const target = document.getElementById('updateTarget').value || 'latest';
+    button.disabled = true;
+    document.getElementById('updateMessage').textContent = 'Queueing update...';
+    fetch('/api/update/request', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({target})
+    })
+        .then(response => response.json())
+        .then(data => {
+            renderUpdateStatus(data);
+            const trigger = data.service_trigger || {};
+            if (trigger.triggered) {
+                document.getElementById('updateMessage').textContent =
+                    'Update queued. The dashboard may briefly disconnect during restart.';
+            } else if (trigger.error) {
+                document.getElementById('updateMessage').textContent =
+                    `Update queued, but the service did not start: ${trigger.error}`;
+            }
+        })
+        .catch(error => {
+            console.error('Error requesting update:', error);
+            document.getElementById('updateMessage').textContent = 'Could not queue update.';
+        })
+        .finally(() => {
+            setTimeout(loadUpdateStatus, 1500);
+            button.disabled = false;
+        });
+}
+
+function renderUpdateStatus(update) {
+    const current = update.current_version || 'unknown';
+    const latest = update.latest_version || 'unknown';
+    const state = update.state || 'idle';
+    const lastChecked = update.last_checked_at ? formatDateTime(update.last_checked_at) : 'Never';
+    const pending = update.pending_request || null;
+    const message = updateMessageForState(update, pending);
+
+    document.getElementById('updateCurrentVersion').textContent = current;
+    document.getElementById('updateLatestVersion').textContent = latest;
+    document.getElementById('updateState').textContent = state;
+    document.getElementById('updateLastCheck').textContent = lastChecked;
+    document.getElementById('updateMessage').textContent = message;
+    document.getElementById('updateInstallBtn').disabled = state === 'updating';
+
+    renderUpdateLog(update.logs || []);
+}
+
+function updateMessageForState(update, pending) {
+    if (update.last_error) {
+        return update.last_error;
+    }
+    if (pending) {
+        return `Queued for ${pending.target || 'latest'}.`;
+    }
+    if (update.update_available) {
+        return `Release ${update.latest_version} is available.`;
+    }
+    if (update.latest_version) {
+        return 'Installed release is current.';
+    }
+    return 'No release check has completed yet.';
+}
+
+function renderUpdateLog(logs) {
+    const container = document.getElementById('updateLog');
+    if (!logs.length) {
+        container.innerHTML = '<div class="health-empty">No update logs yet.</div>';
+        return;
+    }
+    container.innerHTML = logs.slice(-8).reverse().map(entry => `
+        <div class="update-log-entry">
+            <span>${escapeHtml(formatDateTime(entry.at))}</span>
+            <strong>${escapeHtml(entry.message)}</strong>
+        </div>
+    `).join('');
+}
+
+function formatDateTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return value || '-';
+    }
+    return date.toLocaleString();
 }
 
 function renderHealthDetails(health) {

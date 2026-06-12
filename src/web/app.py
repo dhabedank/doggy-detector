@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from src.storage import Storage
 from src.config import Config, SettingsStore
+from src.deterrence import DeterrenceController
 from src.web.auth import create_login_manager, request_is_authenticated
 
 
@@ -20,6 +21,7 @@ def create_app(
     storage: Storage,
     settings_store: SettingsStore | None = None,
     generated_auth_credentials: dict[str, str] | None = None,
+    deterrence_controller: DeterrenceController | None = None,
 ) -> FastAPI:
     """Create and configure FastAPI application."""
     app = FastAPI(title="Doggy Detector")
@@ -29,6 +31,11 @@ def create_app(
     app.state.storage = storage
     app.state.settings_store = settings_store or SettingsStore(storage.data_dir)
     app.state.generated_auth_credentials = generated_auth_credentials
+    app.state.deterrence_controller = deterrence_controller or DeterrenceController(
+        config.deterrence,
+        storage,
+    )
+    app.state.project_dir = Path(__file__).resolve().parents[2]
 
     created_credentials = app.state.settings_store.ensure_auth_credentials()
     if app.state.generated_auth_credentials is None:

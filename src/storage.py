@@ -34,6 +34,20 @@ class Event:
     created_at: Optional[datetime] = None
 
 
+@dataclass
+class DeterrenceEvent:
+    fired_at: datetime
+    source: str
+    mode: str
+    profile: str
+    status: str
+    bark_score: Optional[float] = None
+    audio_level: Optional[float] = None
+    duration_sec: Optional[float] = None
+    error: Optional[str] = None
+    id: Optional[int] = None
+
+
 class Storage:
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -80,6 +94,21 @@ class Storage:
                 updated_at TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS deterrence_events (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                fired_at     TEXT NOT NULL,
+                source       TEXT NOT NULL,
+                mode         TEXT NOT NULL,
+                profile      TEXT NOT NULL,
+                status       TEXT NOT NULL,
+                bark_score   REAL,
+                audio_level  REAL,
+                duration_sec REAL,
+                error        TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_deterrence_fired_at ON deterrence_events(fired_at)")
         conn.commit()
         conn.close()
 
@@ -253,6 +282,64 @@ class Storage:
             "peak_score": float(row[3]),
         }
 
+    def save_deterrence_event(self, event: DeterrenceEvent) -> int:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute(
+            """
+            INSERT INTO deterrence_events (
+                fired_at, source, mode, profile, status, bark_score,
+                audio_level, duration_sec, error
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.fired_at.isoformat(),
+                event.source,
+                event.mode,
+                event.profile,
+                event.status,
+                event.bark_score,
+                event.audio_level,
+                event.duration_sec,
+                event.error,
+            ),
+        )
+        conn.commit()
+        event_id = cursor.lastrowid
+        conn.close()
+        return event_id
+
+    def list_deterrence_events(self, limit: int = 50, offset: int = 0) -> List[DeterrenceEvent]:
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT * FROM deterrence_events
+            ORDER BY fired_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        ).fetchall()
+        conn.close()
+        return [self._row_to_deterrence_event(row) for row in rows]
+
+    def count_deterrence_events(
+        self,
+        start_at: Optional[datetime] = None,
+        status: Optional[str] = None,
+    ) -> int:
+        conn = sqlite3.connect(self.db_path)
+        query = "SELECT COUNT(*) FROM deterrence_events WHERE 1=1"
+        params = []
+        if start_at is not None:
+            query += " AND fired_at >= ?"
+            params.append(start_at.isoformat())
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status)
+        row = conn.execute(query, params).fetchone()
+        conn.close()
+        return int(row[0])
+
     def flag_false_positive(self, event_id: int, reason: Optional[str] = None):
         conn = sqlite3.connect(self.db_path)
         conn.execute(
@@ -309,6 +396,20 @@ class Storage:
             weather_wind_mph=row["weather_wind_mph"],
             weather_conditions=row["weather_conditions"],
             created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+        )
+
+    def _row_to_deterrence_event(self, row: sqlite3.Row) -> DeterrenceEvent:
+        return DeterrenceEvent(
+            id=row["id"],
+            fired_at=datetime.fromisoformat(row["fired_at"]),
+            source=row["source"],
+            mode=row["mode"],
+            profile=row["profile"],
+            status=row["status"],
+            bark_score=row["bark_score"],
+            audio_level=row["audio_level"],
+            duration_sec=row["duration_sec"],
+            error=row["error"],
         )
 
     def save_clip(self, audio_data: bytes, timestamp: datetime) -> tuple[str, str]:

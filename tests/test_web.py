@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from src.web.app import create_app
 from src.config import Config, SettingsStore
+from src.deterrence import ActuatorResult
 from src.storage import Storage, Event
 
 
@@ -114,6 +115,7 @@ def test_get_status(auth_client):
     assert response.status_code == 200
     assert response.json()["status"] == "running"
     assert "health" in response.json()
+    assert "deterrence" in response.json()
 
 
 def test_list_events_empty(auth_client):
@@ -294,6 +296,93 @@ def test_settings_does_not_leak_auth(auth_client):
     data = response.json()
     assert "auth" not in data
     assert "token" not in str(data).lower()
+
+
+class FakeActuator:
+    def __init__(self, mode):
+        self.mode = mode
+        self.calls = 0
+
+    def fire(self, config):
+        self.calls += 1
+        return ActuatorResult(self.mode, True)
+
+
+def test_deterrence_settings_and_manual_fire(auth_client):
+    controller = auth_client.app.state.deterrence_controller
+    controller.audible_actuator = FakeActuator("audible")
+
+    settings_response = auth_client.post("/api/deterrence/settings", json={
+        "audible_enabled": True,
+        "manual_enabled": True,
+        "auto_enabled": True,
+        "bark_score_threshold": 0.22,
+        "burst_sec": 1.5,
+        "cooldown_sec": 3,
+    })
+    assert settings_response.status_code == 200
+    settings = settings_response.json()["deterrence"]
+    assert settings["audible_enabled"] is True
+    assert settings["auto_enabled"] is True
+    assert settings["bark_score_threshold"] == 0.22
+
+    fire_response = auth_client.post("/api/deterrence/fire", json={"modes": ["audible"]})
+    assert fire_response.status_code == 200
+    assert fire_response.json()["success"] is True
+    assert fire_response.json()["events"][0]["mode"] == "audible"
+
+    events_response = auth_client.get("/api/deterrence/events")
+    assert events_response.status_code == 200
+    assert events_response.json()["events"][0]["status"] == "fired"
+
+
+def test_update_status_check_and_request(auth_client, monkeypatch):
+    def fake_status(project_dir, data_dir):
+        return {
+            "state": "idle",
+            "current_version": "v0.1.0",
+            "latest_version": "v0.2.0",
+            "update_available": True,
+            "logs": [],
+        }
+
+    def fake_check(project_dir, data_dir):
+        return {
+            "state": "idle",
+            "current_version": "v0.1.0",
+            "latest_version": "v0.2.0",
+            "update_available": True,
+            "logs": [{"at": "2026-06-12T00:00:00+00:00", "message": "checked"}],
+        }
+
+    def fake_queue(target, project_dir, data_dir):
+        return {
+            "state": "pending",
+            "pending_request": {"target": target},
+            "logs": [],
+        }
+
+    monkeypatch.setattr("src.web.routes.read_update_status", fake_status)
+    monkeypatch.setattr("src.web.routes.check_for_updates", fake_check)
+    monkeypatch.setattr("src.web.routes.queue_update_request", fake_queue)
+    monkeypatch.setattr(
+        "src.web.routes.trigger_update_service",
+        lambda: {"triggered": True, "error": None},
+    )
+
+    status_response = auth_client.get("/api/update/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["latest_version"] == "v0.2.0"
+
+    check_response = auth_client.post("/api/update/check")
+    assert check_response.status_code == 200
+    assert check_response.json()["logs"][0]["message"] == "checked"
+
+    request_response = auth_client.post("/api/update/request", json={"target": "latest"})
+    assert request_response.status_code == 200
+    data = request_response.json()
+    assert data["pending_request"]["target"] == "latest"
+    assert data["service_trigger"]["triggered"] is True
 
 
 def test_update_incident_timing_settings(auth_client):

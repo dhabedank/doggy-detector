@@ -2,11 +2,12 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 import sqlite3
 
+import numpy as np
 import pytest
 
 from src.config import Config, StorageConfig
 from src.incidents import Incident
-from src.main import DoggyDetector
+from src.main import DoggyDetector, resample_audio
 
 
 class FakeWeatherClient:
@@ -34,6 +35,22 @@ def sample_incident():
         direction="left",
         direction_score=0.9,
     )
+
+
+def test_resample_audio_preserves_duration_and_channels():
+    audio = np.column_stack(
+        [
+            np.linspace(-1.0, 1.0, 4800, dtype=np.float32),
+            np.linspace(1.0, -1.0, 4800, dtype=np.float32),
+        ]
+    )
+
+    resampled = resample_audio(audio, source_rate=48000, target_rate=16000)
+
+    assert resampled.shape == (1600, 2)
+    assert resampled.dtype == np.float32
+    assert resampled[0, 0] == pytest.approx(audio[0, 0])
+    assert resampled[0, 1] == pytest.approx(audio[0, 1])
 
 
 @pytest.mark.asyncio

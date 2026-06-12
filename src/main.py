@@ -13,6 +13,7 @@ import uvicorn
 from src.audio import AudioCapture, AudioConfig, IncidentRecorder
 from src.config import Config, load_runtime_config
 from src.detector import BarkDetector
+from src.deterrence import DeterrenceController
 from src.direction import analyze_direction
 from src.incidents import Detection, IncidentState, IncidentTracker
 from src.storage import Event, Storage
@@ -22,6 +23,26 @@ from src.web.app import create_app
 logger = logging.getLogger(__name__)
 
 ROLLING_BUFFER_SECONDS = 30.0
+DETECTOR_SAMPLE_RATE = 16000
+
+
+def resample_audio(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
+    """Resample audio with linear interpolation for detector input."""
+    if source_rate == target_rate or len(audio) == 0:
+        return audio
+
+    target_samples = max(1, int(round(len(audio) * target_rate / source_rate)))
+    source_positions = np.arange(len(audio), dtype=np.float64)
+    target_positions = np.linspace(0, len(audio) - 1, target_samples, dtype=np.float64)
+
+    if audio.ndim == 1:
+        return np.interp(target_positions, source_positions, audio).astype(np.float32)
+
+    channels = [
+        np.interp(target_positions, source_positions, audio[:, channel])
+        for channel in range(audio.shape[1])
+    ]
+    return np.column_stack(channels).astype(np.float32)
 
 
 class DoggyDetector:
@@ -44,6 +65,7 @@ class DoggyDetector:
             )
 
         self.detector = BarkDetector(threshold=config.detection.threshold)
+        self.deterrence_controller = DeterrenceController(config.deterrence, self.storage)
         self.incident_tracker = IncidentTracker(config.incidents)
         self.weather_client = WeatherClient()
 
@@ -190,7 +212,12 @@ class DoggyDetector:
 
                 # Run bark detection on chunk
                 try:
-                    detection_result = self.detector.detect(chunk)
+                    detector_chunk = resample_audio(
+                        chunk,
+                        self.config.audio.sample_rate,
+                        DETECTOR_SAMPLE_RATE,
+                    )
+                    detection_result = self.detector.detect(detector_chunk)
                     self.status["last_score"] = detection_result.score
                     self.status["is_barking"] = bool(detection_result.is_bark)
 
@@ -208,6 +235,17 @@ class DoggyDetector:
                             f"BARK DETECTED! score={detection_result.score:.2f} "
                             f"(threshold={self.config.detection.threshold})"
                         )
+                        deterrence_events = self.deterrence_controller.handle_bark_detection(
+                            score=detection_result.score,
+                            audio_level=self.status["audio_level"],
+                        )
+                        for deterrence_event in deterrence_events:
+                            logger.info(
+                                "Deterrence %s %s via %s",
+                                deterrence_event.status,
+                                deterrence_event.mode,
+                                deterrence_event.source,
+                            )
 
                         # Analyze direction from stereo audio
                         direction_result = analyze_direction(chunk)
@@ -238,6 +276,7 @@ class DoggyDetector:
                         # If incident completed, save it
                         if incident:
                             await self._save_incident(incident)
+                            self.deterrence_controller.reset_incident()
                             self.status["active_incident"] = self.incident_tracker.state in {
                                 IncidentState.ACTIVE,
                                 IncidentState.COOLDOWN,
@@ -262,7 +301,10 @@ class DoggyDetector:
                 if incident:
                     logger.info("Incident ended (silence timeout)")
                     await self._save_incident(incident)
+                    self.deterrence_controller.reset_incident()
                     self.status["active_incident"] = False
+                elif self.incident_tracker.state == IncidentState.MONITORING and not self.incident_tracker.detections:
+                    self.deterrence_controller.reset_incident()
 
             except asyncio.TimeoutError:
                 # Normal timeout, check for incident timeout
@@ -274,7 +316,10 @@ class DoggyDetector:
                 if incident:
                     logger.info("Incident ended (silence timeout)")
                     await self._save_incident(incident)
+                    self.deterrence_controller.reset_incident()
                     self.status["active_incident"] = False
+                elif self.incident_tracker.state == IncidentState.MONITORING and not self.incident_tracker.detections:
+                    self.deterrence_controller.reset_incident()
 
             except Exception as e:
                 logger.error(f"Error in process loop: {e}")
@@ -434,7 +479,13 @@ async def main():
     detector = DoggyDetector(config)
 
     # Create FastAPI app
-    app = create_app(config, detector.storage, settings_store, generated_credentials)
+    app = create_app(
+        config,
+        detector.storage,
+        settings_store,
+        generated_credentials,
+        detector.deterrence_controller,
+    )
     app.state.detector = detector  # For live status access
 
     # Setup signal handlers for graceful shutdown
