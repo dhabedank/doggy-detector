@@ -973,7 +973,9 @@ body {
 .header-right {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: flex-end;
 }
 
 .device-info {
@@ -1284,6 +1286,80 @@ body {
     white-space: nowrap;
 }
 
+.logs-page {
+    max-width: 1180px;
+}
+
+.logs-console {
+    background: #fff;
+    border: 1px solid #e2e2e2;
+    border-radius: 8px;
+    padding: 1rem;
+}
+
+.logs-toolbar {
+    align-items: center;
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    margin-bottom: 0.85rem;
+}
+
+.logs-controls,
+.logs-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.logs-controls .form-input {
+    min-width: 11rem;
+}
+
+.logs-actions .btn.active {
+    background: #2e7d32;
+}
+
+.logs-meta {
+    align-items: center;
+    background: #fafafa;
+    border: 1px solid #eee;
+    border-radius: 6px;
+    color: #555;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+    padding: 0.65rem 0.75rem;
+}
+
+.logs-meta span:first-child {
+    color: #222;
+    font-weight: 600;
+}
+
+.logs-output {
+    background: #151515;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #e8e8e8;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    margin: 0;
+    min-height: 30rem;
+    overflow: auto;
+    padding: 1rem;
+    white-space: pre-wrap;
+}
+
+.logs-output-error {
+    border-color: #c62828;
+    color: #ffcdd2;
+}
+
 .settings-actions {
     display: flex;
     align-items: center;
@@ -1423,5 +1499,19 @@ body {
 
     .update-log-entry {
         grid-template-columns: 1fr;
+    }
+
+    .logs-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .logs-controls .form-input,
+    .logs-actions .btn {
+        flex: 1 1 10rem;
+    }
+
+    .logs-output {
+        min-height: 24rem;
     }
 }

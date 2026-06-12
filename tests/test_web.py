@@ -1,6 +1,7 @@
 import pytest
 from pathlib import Path
 from datetime import datetime
+import subprocess
 import tempfile
 import zipfile
 import io
@@ -92,6 +93,20 @@ def test_settings_page_requires_auth(client):
     assert "/static/settings.js?v=" in response.text
 
 
+def test_logs_page_requires_auth(client):
+    assert client.get("/logs").status_code == 401
+    login_response = client.post(
+        "/api/auth/login",
+        json={"username": client.app.state.test_username, "password": client.app.state.test_password},
+    )
+    assert login_response.status_code == 200
+
+    response = client.get("/logs")
+    assert response.status_code == 200
+    assert "Logs" in response.text
+    assert "/static/logs.js?v=" in response.text
+
+
 def test_dashboard_shows_compact_ops_not_full_health_panel(auth_client):
     response = auth_client.get("/")
 
@@ -99,6 +114,38 @@ def test_dashboard_shows_compact_ops_not_full_health_panel(auth_client):
     assert "opsStrip" in response.text
     assert "healthChecks" not in response.text
     assert "/static/app.js?v=" in response.text
+    assert 'href="/logs"' in response.text
+
+
+def test_logs_api_reads_whitelisted_journal(auth_client, monkeypatch):
+    def fake_run(command, capture_output, text, timeout):
+        assert command == [
+            "journalctl",
+            "-u",
+            "doggy-detector",
+            "-n",
+            "50",
+            "--no-pager",
+            "-o",
+            "short-iso",
+        ]
+        return subprocess.CompletedProcess(command, 0, stdout="line one\nline two\n", stderr="")
+
+    monkeypatch.setattr("src.web.routes.subprocess.run", fake_run)
+
+    response = auth_client.get("/api/logs?service=app&lines=50")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["unit"] == "doggy-detector"
+    assert data["lines"] == ["line one", "line two"]
+
+
+def test_logs_api_rejects_unknown_service(auth_client):
+    response = auth_client.get("/api/logs?service=bad")
+
+    assert response.status_code == 400
 
 
 def test_dashboard_export_modal_offers_single_zip_package(auth_client):

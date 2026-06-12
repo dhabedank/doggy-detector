@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import math
+import subprocess
 import zipfile
 from dataclasses import asdict
 from datetime import datetime
@@ -34,6 +35,12 @@ except ImportError:
     sd = None
 
 router = APIRouter()
+
+LOG_SERVICES = {
+    "app": {"unit": "doggy-detector", "label": "Detector"},
+    "updater": {"unit": "doggy-detector-updater", "label": "Updater"},
+    "update-check": {"unit": "doggy-detector-update-check", "label": "Update Check"},
+}
 
 
 class FlagRequest(BaseModel):
@@ -101,6 +108,13 @@ async def get_settings_page(request: Request):
     """Serve full settings page."""
     templates = request.app.state.templates
     return templates.TemplateResponse(request=request, name="settings.html")
+
+
+@router.get("/logs")
+async def get_logs_page(request: Request):
+    """Serve service logs page."""
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request=request, name="logs.html")
 
 
 @router.get("/health")
@@ -446,6 +460,68 @@ async def request_update_install(request: Request, update_request: UpdateRequest
     trigger = trigger_update_service()
     status["service_trigger"] = trigger
     return status
+
+
+@router.get("/api/logs")
+async def get_service_logs(
+    service: str = Query("app"),
+    lines: int = Query(200, ge=20, le=1000),
+):
+    """Return recent journal lines for a whitelisted service."""
+    if service not in LOG_SERVICES:
+        raise HTTPException(status_code=400, detail="Unknown log service")
+
+    spec = LOG_SERVICES[service]
+    command = [
+        "journalctl",
+        "-u",
+        spec["unit"],
+        "-n",
+        str(lines),
+        "--no-pager",
+        "-o",
+        "short-iso",
+    ]
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            command,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except FileNotFoundError:
+        return {
+            "success": False,
+            "service": service,
+            "unit": spec["unit"],
+            "label": spec["label"],
+            "lines": [],
+            "error": "journalctl is not available",
+            "generated_at": datetime.now().isoformat(),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "service": service,
+            "unit": spec["unit"],
+            "label": spec["label"],
+            "lines": [],
+            "error": "journalctl timed out",
+            "generated_at": datetime.now().isoformat(),
+        }
+
+    stdout_lines = result.stdout.splitlines()
+    stderr_lines = result.stderr.splitlines()
+    return {
+        "success": result.returncode == 0,
+        "service": service,
+        "unit": spec["unit"],
+        "label": spec["label"],
+        "lines": stdout_lines,
+        "error": None if result.returncode == 0 else "\n".join(stderr_lines[-4:]) or f"journalctl exited {result.returncode}",
+        "generated_at": datetime.now().isoformat(),
+    }
 
 
 @router.get("/api/summary")

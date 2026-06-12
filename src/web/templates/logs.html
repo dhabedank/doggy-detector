@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doggy Detector - Logs</title>
+    <link rel="stylesheet" href="/static/style.css?v={{ request.app.state.asset_version }}">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <h1 class="logo">Logs</h1>
+            <div class="header-right">
+                <a class="btn btn-secondary" href="/">Dashboard</a>
+                <a class="btn btn-secondary" href="/settings">Settings</a>
+            </div>
+        </div>
+    </header>
+
+    <main class="container logs-page">
+        <section class="logs-console">
+            <div class="logs-toolbar">
+                <div class="logs-controls">
+                    <select id="logService" class="form-input">
+                        <option value="app">Detector</option>
+                        <option value="updater">Updater</option>
+                        <option value="update-check">Update Check</option>
+                    </select>
+                    <select id="logLines" class="form-input">
+                        <option value="100">100 lines</option>
+                        <option value="200" selected>200 lines</option>
+                        <option value="500">500 lines</option>
+                        <option value="1000">1000 lines</option>
+                    </select>
+                </div>
+                <div class="logs-actions">
+                    <button class="btn btn-secondary" type="button" id="logRefreshBtn">Refresh</button>
+                    <button class="btn btn-primary" type="button" id="logFollowBtn">Follow</button>
+                </div>
+            </div>
+            <div class="logs-meta">
+                <span id="logState">Loading</span>
+                <span id="logGenerated">Waiting for logs...</span>
+            </div>
+            <pre class="logs-output" id="logOutput">Loading logs...</pre>
+        </section>
+    </main>
+
+    <script src="/static/logs.js?v={{ request.app.state.asset_version }}"></script>
+</body>
+</html>

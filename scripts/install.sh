@@ -53,6 +53,11 @@ pip install -r requirements.txt
 echo "Creating data directories..."
 mkdir -p data/clips data/reports
 
+if getent group systemd-journal > /dev/null; then
+    echo "Granting journal read access to $SERVICE_USER..."
+    sudo usermod -aG systemd-journal "$SERVICE_USER"
+fi
+
 # Install systemd service
 echo "Installing systemd service..."
 sudo tee /etc/systemd/system/doggy-detector.service > /dev/null << EOF
