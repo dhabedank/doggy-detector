@@ -1347,9 +1347,9 @@ body {
     color: #e8e8e8;
     font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
     font-size: 0.82rem;
+    height: clamp(24rem, 64vh, 42rem);
     line-height: 1.45;
     margin: 0;
-    min-height: 30rem;
     overflow: auto;
     padding: 1rem;
     white-space: pre-wrap;
@@ -1512,6 +1512,7 @@ body {
     }
 
     .logs-output {
-        min-height: 24rem;
+        height: 60vh;
+        min-height: 20rem;
     }
 }

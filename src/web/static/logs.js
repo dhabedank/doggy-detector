@@ -4,6 +4,7 @@ let followEnabled = false;
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('logRefreshBtn').addEventListener('click', loadLogs);
     document.getElementById('logFollowBtn').addEventListener('click', toggleFollow);
+    document.getElementById('logCopyBtn').addEventListener('click', copyLogs);
     document.getElementById('logService').addEventListener('change', loadLogs);
     document.getElementById('logLines').addEventListener('change', loadLogs);
     loadLogs();
@@ -41,6 +42,19 @@ function toggleFollow() {
     }
 }
 
+function copyLogs() {
+    const output = document.getElementById('logOutput');
+    const button = document.getElementById('logCopyBtn');
+    const text = output.textContent || '';
+
+    copyText(text)
+        .then(() => setCopyButtonState(button, 'Copied'))
+        .catch(error => {
+            console.error('Error copying logs:', error);
+            setCopyButtonState(button, 'Copy failed');
+        });
+}
+
 function renderLogs(data) {
     const state = document.getElementById('logState');
     const generated = document.getElementById('logGenerated');
@@ -61,4 +75,37 @@ function renderLogs(data) {
     if (followEnabled) {
         output.scrollTop = output.scrollHeight;
     }
+}
+
+function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+    }
+
+    return new Promise((resolve, reject) => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+            document.execCommand('copy') ? resolve() : reject(new Error('copy command failed'));
+        } catch (error) {
+            reject(error);
+        } finally {
+            document.body.removeChild(textarea);
+        }
+    });
+}
+
+function setCopyButtonState(button, label) {
+    const original = 'Copy';
+    button.textContent = label;
+    button.disabled = label === 'Copied';
+    setTimeout(() => {
+        button.textContent = original;
+        button.disabled = false;
+    }, 1200);
 }

@@ -104,6 +104,7 @@ def test_logs_page_requires_auth(client):
     response = client.get("/logs")
     assert response.status_code == 200
     assert "Logs" in response.text
+    assert "logCopyBtn" in response.text
     assert "/static/logs.js?v=" in response.text
 
 
