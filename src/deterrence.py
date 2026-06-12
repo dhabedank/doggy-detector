@@ -23,6 +23,9 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 VALID_MODES = {"audible", "ultrasonic"}
+DEFAULT_AUDIBLE_PROFILE = "chirp"
+RANDOMIZABLE_AUDIBLE_PROFILES = ("chirp", "alarm", "warble", "trill", "siren", "static")
+AUDIBLE_PROFILE_NAMES = (*RANDOMIZABLE_AUDIBLE_PROFILES, "random")
 
 
 @dataclass
@@ -30,6 +33,7 @@ class ActuatorResult:
     mode: str
     success: bool
     error: Optional[str] = None
+    profile: Optional[str] = None
 
 
 class AudibleActuator:
@@ -42,7 +46,9 @@ class AudibleActuator:
             return ActuatorResult("audible", False, "sounddevice is not available")
 
         duration_sec = _clamp(config.burst_sec, 0.1, 10.0)
-        profile = config.audible_profile or "chirp"
+        profile = select_audible_profile(
+            config.audible_profile or DEFAULT_AUDIBLE_PROFILE
+        )
         output_device = config.audible_output_device
 
         def play_burst() -> None:
@@ -53,7 +59,7 @@ class AudibleActuator:
                 logger.error("Audible deterrent playback failed: %s", exc)
 
         threading.Thread(target=play_burst, daemon=True).start()
-        return ActuatorResult("audible", True)
+        return ActuatorResult("audible", True, profile=profile)
 
 
 class UltrasonicRelayActuator:
@@ -223,6 +229,7 @@ class DeterrenceController:
                     audio_level=audio_level,
                     status=status,
                     error=error,
+                    profile=result.profile,
                 )
             )
 
@@ -265,12 +272,13 @@ class DeterrenceController:
         bark_score: Optional[float] = None,
         audio_level: Optional[float] = None,
         error: Optional[str] = None,
+        profile: Optional[str] = None,
     ) -> DeterrenceEvent:
         event = DeterrenceEvent(
             fired_at=self.now_func(),
             source=source,
             mode=mode,
-            profile=self.config.audible_profile,
+            profile=profile or self.config.audible_profile,
             status=status,
             bark_score=bark_score,
             audio_level=audio_level,
@@ -322,7 +330,22 @@ class DeterrenceController:
         return current >= start or current < end
 
 
-def build_audible_waveform(profile: str, duration_sec: float, sample_rate: int) -> np.ndarray:
+def select_audible_profile(profile: str, rng: Optional[np.random.Generator] = None) -> str:
+    if profile == "random":
+        generator = rng or np.random.default_rng()
+        return str(generator.choice(RANDOMIZABLE_AUDIBLE_PROFILES))
+    if profile in RANDOMIZABLE_AUDIBLE_PROFILES:
+        return profile
+    return DEFAULT_AUDIBLE_PROFILE
+
+
+def build_audible_waveform(
+    profile: str,
+    duration_sec: float,
+    sample_rate: int,
+    rng: Optional[np.random.Generator] = None,
+) -> np.ndarray:
+    profile = select_audible_profile(profile, rng=rng)
     samples = max(1, int(duration_sec * sample_rate))
     t = np.linspace(0, duration_sec, samples, endpoint=False)
     envelope = np.minimum(1.0, np.minimum(t / 0.03, (duration_sec - t) / 0.05))
@@ -330,14 +353,39 @@ def build_audible_waveform(profile: str, duration_sec: float, sample_rate: int) 
 
     if profile == "alarm":
         frequency = np.where((t * 8).astype(int) % 2 == 0, 1800.0, 3200.0)
-        phase = 2 * math.pi * np.cumsum(frequency) / sample_rate
+        signal = _sine_from_frequency(frequency, sample_rate)
+    elif profile == "warble":
+        frequency = (
+            4200.0
+            + 900.0 * np.sin(2 * math.pi * 14.0 * t)
+            + 350.0 * np.sin(2 * math.pi * 5.0 * t)
+        )
+        signal = _sine_from_frequency(frequency, sample_rate)
+    elif profile == "trill":
+        gate = np.where((t * 18).astype(int) % 2 == 0, 1.0, 0.18)
+        primary = _sine_from_frequency(np.full_like(t, 5200.0), sample_rate)
+        overtone = _sine_from_frequency(np.full_like(t, 3100.0), sample_rate)
+        signal = gate * (0.75 * primary + 0.25 * overtone)
+    elif profile == "siren":
+        cycle = (t * 1.7) % 1.0
+        triangle = np.where(cycle < 0.5, cycle * 2.0, (1.0 - cycle) * 2.0)
+        frequency = 900.0 + 4300.0 * triangle
+        signal = _sine_from_frequency(frequency, sample_rate)
+    elif profile == "static":
+        generator = rng or np.random.default_rng()
+        carrier = _sine_from_frequency(np.full_like(t, 6200.0), sample_rate)
+        noise = generator.uniform(-1.0, 1.0, samples)
+        signal = 0.65 * noise + 0.35 * carrier
     else:
         start_hz = 1800.0
         end_hz = 4600.0
         sweep = start_hz + (end_hz - start_hz) * (t / max(duration_sec, 0.001))
-        phase = 2 * math.pi * np.cumsum(sweep) / sample_rate
+        signal = _sine_from_frequency(sweep, sample_rate)
 
-    return (0.6 * envelope * np.sin(phase)).astype(np.float32)
+    peak = np.max(np.abs(signal))
+    if peak > 0:
+        signal = signal / peak
+    return (0.6 * envelope * signal).astype(np.float32)
 
 
 def deterrence_event_to_dict(event: DeterrenceEvent) -> dict:
@@ -365,3 +413,10 @@ def _parse_time(value: str) -> datetime_time:
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, float(value)))
+
+
+def _sine_from_frequency(frequency: np.ndarray, sample_rate: int) -> np.ndarray:
+    nyquist_safe = max(100.0, (sample_rate / 2.0) - 100.0)
+    limited = np.minimum(np.maximum(frequency, 80.0), nyquist_safe)
+    phase = 2 * math.pi * np.cumsum(limited) / sample_rate
+    return np.sin(phase)

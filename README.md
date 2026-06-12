@@ -166,7 +166,8 @@ with thresholds, cooldowns, quiet hours, and maximum firing limits.
 
 Supported output paths:
 
-- Audible: generated chirp or alarm profiles through a configured output device.
+- Audible: generated chirp, alarm, warble, trill, siren, static, or
+  random-rotation profiles through a configured output device.
 - Ultrasonic: GPIO-triggered external ultrasonic hardware.
 
 The app logs every firing attempt, including source, mode, duration, profile,

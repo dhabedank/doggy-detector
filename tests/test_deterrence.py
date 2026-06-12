@@ -2,8 +2,16 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
 
+import numpy as np
+
 from src.config import DeterrenceConfig
-from src.deterrence import ActuatorResult, DeterrenceController, build_audible_waveform
+from src.deterrence import (
+    ActuatorResult,
+    DeterrenceController,
+    RANDOMIZABLE_AUDIBLE_PROFILES,
+    build_audible_waveform,
+    select_audible_profile,
+)
 from src.storage import Storage
 
 
@@ -107,13 +115,31 @@ def test_auto_fire_respects_quiet_hours():
     assert controller.handle_bark_detection(score=0.9, audio_level=0.3) == []
 
 
-def test_audible_waveform_is_bounded_float_audio():
-    waveform = build_audible_waveform("chirp", duration_sec=0.25, sample_rate=16000)
+def test_audible_waveforms_are_bounded_float_audio():
+    profiles = (*RANDOMIZABLE_AUDIBLE_PROFILES, "random")
+    rng = np.random.default_rng(7)
 
-    assert waveform.dtype.name == "float32"
-    assert waveform.shape == (4000,)
-    assert waveform.max() <= 0.61
-    assert waveform.min() >= -0.61
+    for profile in profiles:
+        waveform = build_audible_waveform(
+            profile,
+            duration_sec=0.25,
+            sample_rate=16000,
+            rng=rng,
+        )
+
+        assert waveform.dtype.name == "float32"
+        assert waveform.shape == (4000,)
+        assert waveform.max() <= 0.61
+        assert waveform.min() >= -0.61
+
+
+def test_random_audible_profile_resolves_to_known_generated_profile():
+    rng = np.random.default_rng(7)
+
+    selected = {select_audible_profile("random", rng=rng) for _ in range(12)}
+
+    assert selected
+    assert selected.issubset(set(RANDOMIZABLE_AUDIBLE_PROFILES))
 
 
 def test_master_switch_blocks_auto_firing():

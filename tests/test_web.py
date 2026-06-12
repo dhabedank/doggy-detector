@@ -369,12 +369,14 @@ def test_deterrence_settings_and_manual_fire(auth_client):
         "bark_score_threshold": 0.22,
         "burst_sec": 1.5,
         "cooldown_sec": 3,
+        "audible_profile": "random",
     })
     assert settings_response.status_code == 200
     settings = settings_response.json()["deterrence"]
     assert settings["audible_enabled"] is True
     assert settings["auto_enabled"] is True
     assert settings["bark_score_threshold"] == 0.22
+    assert settings["audible_profile"] == "random"
 
     fire_response = auth_client.post("/api/deterrence/fire", json={"modes": ["audible"]})
     assert fire_response.status_code == 200
@@ -384,6 +386,15 @@ def test_deterrence_settings_and_manual_fire(auth_client):
     events_response = auth_client.get("/api/deterrence/events")
     assert events_response.status_code == 200
     assert events_response.json()["events"][0]["status"] == "fired"
+
+
+def test_deterrence_settings_reject_unknown_audible_profile(auth_client):
+    settings_response = auth_client.post("/api/deterrence/settings", json={
+        "audible_profile": "not-real",
+    })
+
+    assert settings_response.status_code == 200
+    assert settings_response.json()["deterrence"]["audible_profile"] == "chirp"
 
 
 def test_deterrence_master_switch_disables_firing(auth_client):

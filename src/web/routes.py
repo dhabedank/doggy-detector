@@ -20,7 +20,11 @@ except ImportError:
     EventSourceResponse = None
 
 from src.health import build_health
-from src.deterrence import deterrence_event_to_dict
+from src.deterrence import (
+    AUDIBLE_PROFILE_NAMES,
+    DEFAULT_AUDIBLE_PROFILE,
+    deterrence_event_to_dict,
+)
 from src.updater import (
     check_for_updates,
     queue_update_request,
@@ -397,7 +401,11 @@ async def update_deterrence_settings(request: Request, settings: DeterrenceSetti
     if "audible_output_device" in settings.model_fields_set:
         deterrence.audible_output_device = _normalize_optional_device(settings.audible_output_device)
     if settings.audible_profile is not None:
-        deterrence.audible_profile = settings.audible_profile if settings.audible_profile in {"chirp", "alarm"} else "chirp"
+        deterrence.audible_profile = (
+            settings.audible_profile
+            if settings.audible_profile in AUDIBLE_PROFILE_NAMES
+            else DEFAULT_AUDIBLE_PROFILE
+        )
 
     request.app.state.settings_store.update_config(config)
     request.app.state.deterrence_controller.update_config(deterrence)
