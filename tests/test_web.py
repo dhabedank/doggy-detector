@@ -386,6 +386,28 @@ def test_deterrence_settings_and_manual_fire(auth_client):
     assert events_response.json()["events"][0]["status"] == "fired"
 
 
+def test_deterrence_master_switch_disables_firing(auth_client):
+    controller = auth_client.app.state.deterrence_controller
+    controller.audible_actuator = FakeActuator("audible")
+
+    settings_response = auth_client.post("/api/deterrence/settings", json={
+        "enabled": False,
+        "audible_enabled": True,
+        "manual_enabled": True,
+    })
+    assert settings_response.status_code == 200
+    assert settings_response.json()["deterrence"]["enabled"] is False
+
+    fire_response = auth_client.post("/api/deterrence/fire", json={"modes": ["audible"]})
+    assert fire_response.status_code == 200
+    assert fire_response.json()["success"] is False
+    assert fire_response.json()["events"][0]["error"] == "deterrence is disabled"
+
+    reenable_response = auth_client.post("/api/deterrence/settings", json={"enabled": True})
+    assert reenable_response.status_code == 200
+    assert reenable_response.json()["deterrence"]["enabled"] is True
+
+
 def test_update_status_check_and_request(auth_client, monkeypatch):
     def fake_status(project_dir, data_dir):
         return {

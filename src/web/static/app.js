@@ -597,6 +597,7 @@ function setDeterrenceButtonsDisabled(disabled) {
 
 function renderDeterrenceStatus(deterrence) {
     const settings = deterrence.settings || {};
+    document.getElementById('deterrenceConsole').hidden = settings.enabled === false;
     const enabledModes = deterrence.enabled_modes || [];
     const autoText = settings.auto_enabled ? 'Auto armed' : 'Manual';
     const modeText = enabledModes.length ? enabledModes.join(' + ') : 'no output';

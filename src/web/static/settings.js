@@ -32,6 +32,12 @@ function setupSettingsListeners() {
     document.getElementById('refreshHealthBtn').addEventListener('click', loadHealthDetails);
     document.getElementById('updateCheckBtn').addEventListener('click', checkForUpdates);
     document.getElementById('updateInstallBtn').addEventListener('click', requestUpdateInstall);
+    document.getElementById('deterrenceEnabled').addEventListener('change', updateDeterrenceVisibility);
+}
+
+function updateDeterrenceVisibility() {
+    const enabled = document.getElementById('deterrenceEnabled').checked;
+    document.getElementById('deterrenceFields').hidden = !enabled;
 }
 
 function loadSettingsPage() {
@@ -90,6 +96,8 @@ function populateSettings(settingsData) {
     document.getElementById('locationAddress').value = location.address || '';
     document.getElementById('locationLat').value = location.lat ?? '';
     document.getElementById('locationLon').value = location.lon ?? '';
+    document.getElementById('deterrenceEnabled').checked = deterrence.enabled !== false;
+    updateDeterrenceVisibility();
     document.getElementById('deterrenceAudibleEnabled').checked = Boolean(deterrence.audible_enabled);
     document.getElementById('deterrenceUltrasonicEnabled').checked = Boolean(deterrence.ultrasonic_enabled);
     document.getElementById('deterrenceManualEnabled').checked = deterrence.manual_enabled !== false;
@@ -129,6 +137,7 @@ function saveSettings() {
     const gpioPin = document.getElementById('deterrenceGpioPin').value;
     const outputDevice = document.getElementById('deterrenceOutputDevice').value;
     const deterrenceSettings = {
+        enabled: document.getElementById('deterrenceEnabled').checked,
         audible_enabled: document.getElementById('deterrenceAudibleEnabled').checked,
         ultrasonic_enabled: document.getElementById('deterrenceUltrasonicEnabled').checked,
         manual_enabled: document.getElementById('deterrenceManualEnabled').checked,

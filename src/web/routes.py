@@ -69,6 +69,7 @@ class SettingsUpdate(BaseModel):
 
 
 class DeterrenceSettingsUpdate(BaseModel):
+    enabled: Optional[bool] = None
     audible_enabled: Optional[bool] = None
     ultrasonic_enabled: Optional[bool] = None
     manual_enabled: Optional[bool] = None
@@ -357,6 +358,8 @@ async def update_deterrence_settings(request: Request, settings: DeterrenceSetti
     config = request.app.state.config
     deterrence = config.deterrence
 
+    if settings.enabled is not None:
+        deterrence.enabled = bool(settings.enabled)
     if settings.audible_enabled is not None:
         deterrence.audible_enabled = bool(settings.audible_enabled)
     if settings.ultrasonic_enabled is not None:

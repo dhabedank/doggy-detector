@@ -1119,6 +1119,14 @@ select.form-input {
     accent-color: var(--accent);
 }
 
+.toggle-row-master {
+    margin-bottom: 0.85rem;
+}
+
+[hidden] {
+    display: none !important;
+}
+
 .modal-body hr {
     border: none;
     border-top: 1px solid var(--border-2);

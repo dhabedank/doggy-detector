@@ -114,3 +114,27 @@ def test_audible_waveform_is_bounded_float_audio():
     assert waveform.shape == (4000,)
     assert waveform.max() <= 0.61
     assert waveform.min() >= -0.61
+
+
+def test_master_switch_blocks_auto_firing():
+    config = DeterrenceConfig(
+        enabled=False,
+        audible_enabled=True,
+        auto_enabled=True,
+        bark_score_threshold=0.1,
+    )
+    controller = make_controller(config)
+
+    assert controller.handle_bark_detection(score=0.9, audio_level=0.5) == []
+    assert controller.storage.list_deterrence_events() == []
+
+
+def test_master_switch_blocks_manual_firing():
+    config = DeterrenceConfig(enabled=False, audible_enabled=True, manual_enabled=True)
+    controller = make_controller(config)
+
+    events = controller.manual_fire(["audible"])
+
+    assert len(events) == 1
+    assert events[0].status == "failed"
+    assert events[0].error == "deterrence is disabled"

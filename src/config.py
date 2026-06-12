@@ -56,6 +56,7 @@ class IncidentsConfig:
 
 @dataclass
 class DeterrenceConfig:
+    enabled: bool = True
     audible_enabled: bool = False
     ultrasonic_enabled: bool = False
     manual_enabled: bool = True

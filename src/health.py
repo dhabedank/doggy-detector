@@ -151,6 +151,10 @@ def _add_detector_checks(
 
 def _add_deterrence_checks(checks: list[dict[str, str]], detector: Optional[Any], config: Config) -> None:
     deterrence = config.deterrence
+    if not deterrence.enabled:
+        _add_check(checks, "deterrence", "ok", "Deterrence is turned off")
+        return
+
     enabled_modes = []
     if deterrence.audible_enabled:
         enabled_modes.append("audible")

@@ -116,6 +116,8 @@ class DeterrenceController:
         self.config = config
 
     def handle_bark_detection(self, score: float, audio_level: float) -> list[DeterrenceEvent]:
+        if not self.config.enabled:
+            return []
         if not self.config.auto_enabled:
             return []
         if score < self.config.bark_score_threshold:
@@ -138,6 +140,15 @@ class DeterrenceController:
         )
 
     def manual_fire(self, modes: Iterable[str]) -> list[DeterrenceEvent]:
+        if not self.config.enabled:
+            return [
+                self._record_event(
+                    source="manual",
+                    mode="none",
+                    status="failed",
+                    error="deterrence is disabled",
+                )
+            ]
         if not self.config.manual_enabled:
             return [
                 self._record_event(
