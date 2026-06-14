@@ -32,6 +32,7 @@ function setupSettingsListeners() {
     document.getElementById('refreshHealthBtn').addEventListener('click', loadHealthDetails);
     document.getElementById('updateCheckBtn').addEventListener('click', checkForUpdates);
     document.getElementById('updateInstallBtn').addEventListener('click', requestUpdateInstall);
+    document.getElementById('systemRestartBtn').addEventListener('click', requestSystemRestart);
     document.getElementById('deterrenceEnabled').addEventListener('change', updateDeterrenceVisibility);
 }
 
@@ -286,6 +287,43 @@ function requestUpdateInstall() {
         .finally(() => {
             setTimeout(loadUpdateStatus, 1500);
             button.disabled = false;
+        });
+}
+
+function requestSystemRestart() {
+    const button = document.getElementById('systemRestartBtn');
+    const status = document.getElementById('systemRestartStatus');
+    const confirmed = window.confirm(
+        'Restart Doggy Detector now? The dashboard may disconnect for a few seconds.'
+    );
+
+    if (!confirmed) {
+        return;
+    }
+
+    button.disabled = true;
+    status.textContent = 'Queueing restart...';
+
+    fetch('/api/system/restart', {method: 'POST'})
+        .then(async response => {
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.detail || 'Could not queue restart.');
+            }
+            return data;
+        })
+        .then(data => {
+            status.textContent = data.message || 'Restart queued.';
+            setTimeout(loadHealthDetails, 8000);
+        })
+        .catch(error => {
+            console.error('Error restarting detector:', error);
+            status.textContent = error.message || 'Could not queue restart.';
+        })
+        .finally(() => {
+            setTimeout(() => {
+                button.disabled = false;
+            }, 3000);
         });
 }
 

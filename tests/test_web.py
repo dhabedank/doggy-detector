@@ -90,6 +90,7 @@ def test_settings_page_requires_auth(client):
     assert response.status_code == 200
     assert "Incident Timing" in response.text
     assert "Diagnostics" in response.text
+    assert "Restart Detector" in response.text
     assert "/static/settings.js?v=" in response.text
 
 
@@ -466,6 +467,49 @@ def test_update_status_check_and_request(auth_client, monkeypatch):
     data = request_response.json()
     assert data["pending_request"]["target"] == "latest"
     assert data["service_trigger"]["triggered"] is True
+
+
+def test_restart_detector_requires_auth(client):
+    response = client.post("/api/system/restart")
+
+    assert response.status_code == 401
+
+
+def test_restart_detector_route_queues_service_restart(auth_client, monkeypatch):
+    monkeypatch.setattr(
+        "src.web.routes.queue_detector_restart",
+        lambda: {
+            "queued": True,
+            "service": "doggy-detector",
+            "pid": 1234,
+            "delay_sec": 1.0,
+            "error": None,
+        },
+    )
+
+    response = auth_client.post("/api/system/restart")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["queued"] is True
+    assert data["service"] == "doggy-detector"
+
+
+def test_restart_detector_route_reports_service_error(auth_client, monkeypatch):
+    monkeypatch.setattr(
+        "src.web.routes.queue_detector_restart",
+        lambda: {
+            "queued": False,
+            "service": "doggy-detector",
+            "error": "systemctl is not available on this machine",
+        },
+    )
+
+    response = auth_client.post("/api/system/restart")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "systemctl is not available on this machine"
 
 
 def test_update_incident_timing_settings(auth_client):

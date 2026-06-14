@@ -717,6 +717,17 @@ body {
     border-color: var(--text-2);
 }
 
+.btn-danger {
+    background-color: var(--danger);
+    border-color: var(--danger);
+    color: #ffffff;
+}
+
+.btn-danger:hover:not(:disabled) {
+    background-color: var(--danger-strong);
+    border-color: var(--danger-strong);
+}
+
 /* Quiet, compact table-row actions */
 .btn-action {
     padding: 0.26rem 0.55rem;
@@ -1327,6 +1338,15 @@ select.form-input {
     color: var(--text-2);
     font-size: 0.8rem;
     margin-bottom: 0.75rem;
+    padding: 0.5rem 0.65rem;
+}
+
+.system-message {
+    background-color: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    color: var(--text-2);
+    font-size: 0.8rem;
     padding: 0.5rem 0.65rem;
 }
 

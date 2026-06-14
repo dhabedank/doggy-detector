@@ -4,6 +4,7 @@ import asyncio
 import io
 import json
 import math
+import logging
 import subprocess
 import zipfile
 from dataclasses import asdict
@@ -31,6 +32,7 @@ from src.updater import (
     read_update_status,
     trigger_update_service,
 )
+from src.system_control import queue_detector_restart
 from src.web.auth import authenticate_user, clear_auth_cookie, set_auth_cookie
 
 try:
@@ -39,6 +41,7 @@ except ImportError:
     sd = None
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 LOG_SERVICES = {
     "app": {"unit": "doggy-detector", "label": "Detector"},
@@ -471,6 +474,21 @@ async def request_update_install(request: Request, update_request: UpdateRequest
     trigger = trigger_update_service()
     status["service_trigger"] = trigger
     return status
+
+
+@router.post("/api/system/restart")
+async def restart_detector_service():
+    """Queue a restart of the installed detector service."""
+    result = queue_detector_restart()
+    if not result["queued"]:
+        raise HTTPException(status_code=503, detail=result["error"])
+
+    logger.warning("Dashboard requested %s service restart", result["service"])
+    return {
+        "success": True,
+        "message": "Restart queued. The dashboard may disconnect briefly.",
+        **result,
+    }
 
 
 @router.get("/api/logs")
