@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional, List
 import sqlite3
 import hashlib
+import struct
 
 
 @dataclass
@@ -138,21 +139,21 @@ class Storage:
             (
                 event.started_at.isoformat(),
                 event.ended_at.isoformat(),
-                event.duration_sec,
-                event.bark_count,
-                event.peak_score,
-                event.avg_score,
-                event.detection_threshold,
-                event.peak_audio_level,
-                event.avg_audio_level,
+                _required_float(event.duration_sec),
+                _required_int(event.bark_count),
+                _required_float(event.peak_score),
+                _required_float(event.avg_score),
+                _optional_float(event.detection_threshold),
+                _optional_float(event.peak_audio_level),
+                _optional_float(event.avg_audio_level),
                 event.direction,
-                event.direction_score,
+                _optional_float(event.direction_score),
                 event.clip_path,
                 event.clip_hash,
                 1 if event.is_false_pos else 0,
                 event.false_pos_reason,
-                event.weather_temp_f,
-                event.weather_wind_mph,
+                _optional_float(event.weather_temp_f),
+                _optional_float(event.weather_wind_mph),
                 event.weather_conditions,
                 datetime.now().isoformat(),
             ),
@@ -297,9 +298,9 @@ class Storage:
                 event.mode,
                 event.profile,
                 event.status,
-                event.bark_score,
-                event.audio_level,
-                event.duration_sec,
+                _optional_float(event.bark_score),
+                _optional_float(event.audio_level),
+                _optional_float(event.duration_sec),
                 event.error,
             ),
         )
@@ -376,40 +377,43 @@ class Storage:
 
     def _row_to_event(self, row: sqlite3.Row) -> Event:
         return Event(
-            id=row["id"],
-            started_at=datetime.fromisoformat(row["started_at"]),
-            ended_at=datetime.fromisoformat(row["ended_at"]),
-            duration_sec=row["duration_sec"],
-            bark_count=row["bark_count"],
-            peak_score=row["peak_score"],
-            avg_score=row["avg_score"],
-            detection_threshold=row["detection_threshold"],
-            peak_audio_level=row["peak_audio_level"],
-            avg_audio_level=row["avg_audio_level"],
-            direction=row["direction"],
-            direction_score=row["direction_score"],
-            clip_path=row["clip_path"],
-            clip_hash=row["clip_hash"],
-            is_false_pos=bool(row["is_false_pos"]),
-            false_pos_reason=row["false_pos_reason"],
-            weather_temp_f=row["weather_temp_f"],
-            weather_wind_mph=row["weather_wind_mph"],
-            weather_conditions=row["weather_conditions"],
-            created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+            id=_optional_int(row["id"]),
+            started_at=datetime.fromisoformat(_required_text(row["started_at"])),
+            ended_at=datetime.fromisoformat(_required_text(row["ended_at"])),
+            duration_sec=_required_float(row["duration_sec"]),
+            bark_count=_required_int(row["bark_count"]),
+            peak_score=_required_float(row["peak_score"]),
+            avg_score=_required_float(row["avg_score"]),
+            detection_threshold=_optional_float(row["detection_threshold"]),
+            peak_audio_level=_optional_float(row["peak_audio_level"]),
+            avg_audio_level=_optional_float(row["avg_audio_level"]),
+            direction=_optional_text(row["direction"]),
+            direction_score=_optional_float(row["direction_score"]),
+            clip_path=_optional_text(row["clip_path"]),
+            clip_hash=_optional_text(row["clip_hash"]),
+            is_false_pos=bool(_required_int(row["is_false_pos"])),
+            false_pos_reason=_optional_text(row["false_pos_reason"]),
+            weather_temp_f=_optional_float(row["weather_temp_f"]),
+            weather_wind_mph=_optional_float(row["weather_wind_mph"]),
+            weather_conditions=_optional_text(row["weather_conditions"]),
+            created_at=(
+                datetime.fromisoformat(_required_text(row["created_at"]))
+                if row["created_at"] else None
+            ),
         )
 
     def _row_to_deterrence_event(self, row: sqlite3.Row) -> DeterrenceEvent:
         return DeterrenceEvent(
-            id=row["id"],
-            fired_at=datetime.fromisoformat(row["fired_at"]),
-            source=row["source"],
-            mode=row["mode"],
-            profile=row["profile"],
-            status=row["status"],
-            bark_score=row["bark_score"],
-            audio_level=row["audio_level"],
-            duration_sec=row["duration_sec"],
-            error=row["error"],
+            id=_optional_int(row["id"]),
+            fired_at=datetime.fromisoformat(_required_text(row["fired_at"])),
+            source=_required_text(row["source"]),
+            mode=_required_text(row["mode"]),
+            profile=_required_text(row["profile"]),
+            status=_required_text(row["status"]),
+            bark_score=_optional_float(row["bark_score"]),
+            audio_level=_optional_float(row["audio_level"]),
+            duration_sec=_optional_float(row["duration_sec"]),
+            error=_optional_text(row["error"]),
         )
 
     def save_clip(self, audio_data: bytes, timestamp: datetime) -> tuple[str, str]:
@@ -527,3 +531,68 @@ class Storage:
                 clips_deleted += 1
 
         return {"events_deleted": len(event_ids), "clips_deleted": clips_deleted}
+
+
+def _required_float(value) -> float:
+    converted = _optional_float(value)
+    if converted is None:
+        raise ValueError("Expected numeric value, got None")
+    return converted
+
+
+def _optional_float(value) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw = bytes(value)
+        if len(raw) == 4:
+            return float(struct.unpack("<f", raw)[0])
+        if len(raw) == 8:
+            return float(struct.unpack("<d", raw)[0])
+        return float(raw.decode())
+    if hasattr(value, "item"):
+        value = value.item()
+    return float(value)
+
+
+def _required_int(value) -> int:
+    converted = _optional_int(value)
+    if converted is None:
+        raise ValueError("Expected integer value, got None")
+    return converted
+
+
+def _optional_int(value) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw = bytes(value)
+        if len(raw) == 1:
+            return int(raw[0])
+        if len(raw) == 2:
+            return int.from_bytes(raw, "little", signed=True)
+        if len(raw) == 4:
+            return int.from_bytes(raw, "little", signed=True)
+        if len(raw) == 8:
+            return int.from_bytes(raw, "little", signed=True)
+        return int(raw.decode())
+    if hasattr(value, "item"):
+        value = value.item()
+    return int(value)
+
+
+def _required_text(value) -> str:
+    converted = _optional_text(value)
+    if converted is None:
+        raise ValueError("Expected text value, got None")
+    return converted
+
+
+def _optional_text(value) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).decode("utf-8", errors="replace")
+    if hasattr(value, "item"):
+        value = value.item()
+    return str(value)

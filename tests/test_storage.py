@@ -2,7 +2,10 @@ import pytest
 from pathlib import Path
 import tempfile
 import sqlite3
+import struct
 from datetime import datetime, timedelta
+
+import numpy as np
 
 from src.storage import Storage, Event, DeterrenceEvent
 
@@ -89,6 +92,87 @@ def test_save_event(temp_storage):
     assert retrieved.detection_threshold == 0.12
     assert retrieved.peak_audio_level == 0.34
     assert retrieved.avg_audio_level == 0.22
+
+
+def test_save_event_coerces_numpy_scalars_to_sqlite_real(temp_storage):
+    event = Event(
+        started_at=datetime(2024, 1, 15, 14, 32, 5),
+        ended_at=datetime(2024, 1, 15, 14, 32, 13),
+        duration_sec=np.float32(8.0),
+        bark_count=np.int64(5),
+        peak_score=np.float32(0.87),
+        avg_score=np.float32(0.72),
+        detection_threshold=np.float32(0.12),
+        peak_audio_level=np.float32(0.34),
+        avg_audio_level=np.float32(0.22),
+        direction_score=np.float32(0.85),
+    )
+
+    event_id = temp_storage.save_event(event)
+
+    conn = sqlite3.connect(temp_storage.db_path)
+    types = conn.execute(
+        """
+        SELECT
+            typeof(duration_sec),
+            typeof(peak_score),
+            typeof(peak_audio_level),
+            typeof(avg_audio_level),
+            typeof(direction_score)
+        FROM events WHERE id = ?
+        """,
+        (event_id,),
+    ).fetchone()
+    conn.close()
+
+    assert types == ("real", "real", "real", "real", "real")
+    retrieved = temp_storage.get_event(event_id)
+    assert retrieved.peak_audio_level == pytest.approx(0.34)
+    assert retrieved.direction_score == pytest.approx(0.85)
+
+
+def test_list_events_decodes_legacy_sqlite_numeric_blobs(temp_storage):
+    conn = sqlite3.connect(temp_storage.db_path)
+    conn.execute(
+        """
+        INSERT INTO events (
+            started_at, ended_at, duration_sec, bark_count, peak_score, avg_score,
+            detection_threshold, peak_audio_level, avg_audio_level,
+            direction, direction_score, clip_path, clip_hash, is_false_pos,
+            false_pos_reason, weather_temp_f, weather_wind_mph, weather_conditions,
+            created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "2026-06-21T15:09:14.023486",
+            "2026-06-21T15:11:00.522041",
+            106.49,
+            74,
+            0.816,
+            0.394,
+            0.15,
+            sqlite3.Binary(struct.pack("<f", 0.07355618476867676)),
+            sqlite3.Binary(struct.pack("<f", 0.038658346980810165)),
+            "left",
+            sqlite3.Binary(struct.pack("<f", 0.736254096031189)),
+            "clips/2026-06-21/15-09-14_023.wav",
+            "945a33cce1c162392eb16fa6031bdfd8cd2139b567eaa307c043bc39d49797ff",
+            0,
+            None,
+            89.1,
+            13.8,
+            "thunderstorm",
+            "2026-06-21T15:11:26.238337",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    event = temp_storage.list_events()[0]
+
+    assert event.peak_audio_level == pytest.approx(0.07355618476867676)
+    assert event.avg_audio_level == pytest.approx(0.038658346980810165)
+    assert event.direction_score == pytest.approx(0.736254096031189)
 
 
 def test_list_events_with_date_filter(temp_storage):

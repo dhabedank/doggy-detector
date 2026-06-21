@@ -5,6 +5,8 @@ import subprocess
 import tempfile
 import zipfile
 import io
+import sqlite3
+import struct
 
 from fastapi.testclient import TestClient
 
@@ -209,6 +211,52 @@ def test_list_events_with_data(auth_client, temp_storage):
     assert data["events"][0]["direction"] == "center"
     assert data["events"][0]["clip_url"] == "/api/clips/2024-01-15/10-00-00_000.wav"
     assert "clip_hash" in data["events"][0]
+
+
+def test_list_events_handles_legacy_numeric_blobs(auth_client, temp_storage):
+    conn = sqlite3.connect(temp_storage.db_path)
+    conn.execute(
+        """
+        INSERT INTO events (
+            started_at, ended_at, duration_sec, bark_count, peak_score, avg_score,
+            detection_threshold, peak_audio_level, avg_audio_level,
+            direction, direction_score, clip_path, clip_hash, is_false_pos,
+            false_pos_reason, weather_temp_f, weather_wind_mph, weather_conditions,
+            created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "2026-06-21T15:09:14.023486",
+            "2026-06-21T15:11:00.522041",
+            106.49,
+            74,
+            0.816,
+            0.394,
+            0.15,
+            sqlite3.Binary(struct.pack("<f", 0.07355618476867676)),
+            sqlite3.Binary(struct.pack("<f", 0.038658346980810165)),
+            "left",
+            sqlite3.Binary(struct.pack("<f", 0.736254096031189)),
+            "clips/2026-06-21/15-09-14_023.wav",
+            "945a33cce1c162392eb16fa6031bdfd8cd2139b567eaa307c043bc39d49797ff",
+            0,
+            None,
+            89.1,
+            13.8,
+            "thunderstorm",
+            "2026-06-21T15:11:26.238337",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    response = auth_client.get("/api/events")
+
+    assert response.status_code == 200
+    event = response.json()["events"][0]
+    assert event["peak_audio_level"] == pytest.approx(0.07355618476867676)
+    assert event["avg_audio_level"] == pytest.approx(0.038658346980810165)
+    assert event["direction_score"] == pytest.approx(0.736254096031189)
 
 
 def test_get_event_detail(auth_client, temp_storage):
