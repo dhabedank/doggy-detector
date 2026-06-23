@@ -282,6 +282,8 @@ class DoggyDetector:
                                 IncidentState.COOLDOWN,
                             }
 
+                        self._cancel_discarded_incident_recording()
+
                         if self.incident_tracker.state == IncidentState.ACTIVE and not self.incident_recorder.is_recording:
                             # Get pre-incident audio for context. The callback already
                             # added the current chunk to the rolling buffer.
@@ -298,6 +300,7 @@ class DoggyDetector:
                     IncidentState.ACTIVE,
                     IncidentState.COOLDOWN,
                 }
+                self._cancel_discarded_incident_recording()
                 if incident:
                     logger.info("Incident ended (silence timeout)")
                     await self._save_incident(incident)
@@ -313,6 +316,7 @@ class DoggyDetector:
                     IncidentState.ACTIVE,
                     IncidentState.COOLDOWN,
                 }
+                self._cancel_discarded_incident_recording()
                 if incident:
                     logger.info("Incident ended (silence timeout)")
                     await self._save_incident(incident)
@@ -323,6 +327,12 @@ class DoggyDetector:
 
             except Exception as e:
                 logger.error(f"Error in process loop: {e}")
+
+    def _cancel_discarded_incident_recording(self):
+        reason = getattr(self.incident_tracker, "last_discard_reason", None)
+        if reason and self.incident_recorder.is_recording:
+            logger.info("Canceled incident recording after discarded incident: %s", reason)
+            self.incident_recorder.cancel()
 
     async def _save_incident(self, incident):
         """Save completed incident to storage.
@@ -342,7 +352,16 @@ class DoggyDetector:
             clip_hash = None
 
             # Stop the incident recorder and get the WAV file
-            temp_wav_path = self.incident_recorder.stop()
+            if recording_duration > self._max_expected_recording_duration(incident):
+                logger.warning(
+                    "Discarding stale incident recording: incident=%.1fs recording=%.1fs",
+                    incident.duration_sec,
+                    recording_duration,
+                )
+                self.incident_recorder.cancel()
+                temp_wav_path = None
+            else:
+                temp_wav_path = self.incident_recorder.stop()
 
             if temp_wav_path and temp_wav_path.exists():
                 try:
@@ -408,6 +427,15 @@ class DoggyDetector:
 
         except Exception as e:
             logger.error(f"Error saving incident: {e}")
+
+    def _max_expected_recording_duration(self, incident) -> float:
+        return (
+            self.config.incidents.pre_roll_sec
+            + incident.duration_sec
+            + self.config.incidents.gap_sec
+            + self.config.incidents.merge_within_sec
+            + max(1.0, self.config.detection.window_sec * 2)
+        )
 
     def _update_channel_status(self, chunk: np.ndarray):
         """Update lightweight audio channel health metrics."""

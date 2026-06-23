@@ -62,6 +62,7 @@ class IncidentTracker:
         self.detections = []
         self.last_detection_time = None
         self.cooldown_started_at = None
+        self.last_discard_reason = None
 
     def process_detection(self, detection: Detection) -> Optional[Incident]:
         """Process a bark detection and update state.
@@ -72,6 +73,8 @@ class IncidentTracker:
         Returns:
             An incident if one was completed, None otherwise
         """
+        self.last_discard_reason = None
+
         if self.state == IncidentState.MONITORING:
             self._clear_stale_monitoring_detections(detection.timestamp)
 
@@ -105,6 +108,8 @@ class IncidentTracker:
         Returns:
             An incident if one was completed and met minimum criteria, None otherwise
         """
+        self.last_discard_reason = None
+
         if self.state == IncidentState.MONITORING:
             self._clear_stale_monitoring_detections(current_time)
             return None
@@ -128,6 +133,8 @@ class IncidentTracker:
         Returns:
             An incident if one was in progress, None otherwise
         """
+        self.last_discard_reason = None
+
         if self.state == IncidentState.MONITORING:
             self._reset()
             return None
@@ -170,6 +177,7 @@ class IncidentTracker:
         # Check minimum duration
         duration = (ended_at - started_at).total_seconds()
         if duration < self.config.min_duration_sec:
+            self.last_discard_reason = "min_duration"
             self._reset()
             return None
 
