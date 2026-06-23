@@ -418,38 +418,75 @@ class Storage:
 
     def save_clip(self, audio_data: bytes, timestamp: datetime) -> tuple[str, str]:
         """Save audio clip and return (relative_path, sha256_hash)."""
+        clip_hash = hashlib.sha256(audio_data).hexdigest()
+        for relative_path, clip_path in self._clip_path_candidates(timestamp):
+            try:
+                with clip_path.open("xb") as f:
+                    f.write(audio_data)
+                return relative_path, clip_hash
+            except FileExistsError:
+                continue
+        raise FileExistsError(f"Could not create unique clip filename for {timestamp.isoformat()}")
+
+    def save_clip_file(self, source_path: Path, timestamp: datetime) -> tuple[str, str]:
+        """Stream a WAV clip from an existing file and return (relative_path, sha256_hash)."""
+        for relative_path, clip_path in self._clip_path_candidates(timestamp):
+            hasher = hashlib.sha256()
+            try:
+                with clip_path.open("xb") as target, source_path.open("rb") as source:
+                    while True:
+                        chunk = source.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        hasher.update(chunk)
+                        target.write(chunk)
+                return relative_path, hasher.hexdigest()
+            except FileExistsError:
+                continue
+            except Exception:
+                try:
+                    clip_path.unlink()
+                except OSError:
+                    pass
+                raise
+        raise FileExistsError(f"Could not create unique clip filename for {timestamp.isoformat()}")
+
+    def _clip_path_candidates(self, timestamp: datetime):
         date_dir = self.data_dir / "clips" / timestamp.strftime("%Y-%m-%d")
         date_dir.mkdir(parents=True, exist_ok=True)
 
         filename_stem = timestamp.strftime("%H-%M-%S") + f"_{timestamp.microsecond // 1000:03d}"
-        clip_path = None
-        filename = ""
 
         for suffix in [""] + [f"_{i:03d}" for i in range(1, 1000)]:
             filename = f"{filename_stem}{suffix}.wav"
             candidate_path = date_dir / filename
-            try:
-                with candidate_path.open("xb") as f:
-                    f.write(audio_data)
-                clip_path = candidate_path
-                break
-            except FileExistsError:
-                continue
+            relative_path = f"clips/{timestamp.strftime('%Y-%m-%d')}/{filename}"
+            yield relative_path, candidate_path
 
-        if clip_path is None:
-            raise FileExistsError(f"Could not create unique clip filename for {timestamp.isoformat()}")
+    def resolve_clip_path(self, relative_clip_path: str) -> Optional[Path]:
+        """Resolve a stored clip path only if it points to a WAV under clips/."""
+        try:
+            relative_path = Path(relative_clip_path)
+        except TypeError:
+            return None
+        if relative_path.is_absolute():
+            return None
+        if len(relative_path.parts) < 3 or relative_path.parts[0] != "clips":
+            return None
+        if relative_path.suffix.lower() != ".wav":
+            return None
 
-        relative_path = f"clips/{timestamp.strftime('%Y-%m-%d')}/{filename}"
-
-        clip_hash = hashlib.sha256(audio_data).hexdigest()
-
-        return relative_path, clip_hash
+        clip_path = (self.data_dir / relative_path).resolve()
+        clips_root = (self.data_dir / "clips").resolve()
+        try:
+            clip_path.relative_to(clips_root)
+        except ValueError:
+            return None
+        return clip_path
 
     def _delete_relative_clip(self, relative_clip_path: str) -> bool:
-        clip_path = (self.data_dir / relative_clip_path).resolve()
-        try:
-            clip_path.relative_to(self.data_dir.resolve())
-        except ValueError:
+        clip_path = self.resolve_clip_path(relative_clip_path)
+        if clip_path is None:
             return False
 
         try:

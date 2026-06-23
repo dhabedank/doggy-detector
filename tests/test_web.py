@@ -712,3 +712,51 @@ def test_csv_export_includes_calibration_fields(auth_client, temp_storage):
     assert "0.05" in csv_text
     assert "0.34" in csv_text
     assert "0.22" in csv_text
+
+
+def test_report_zip_ignores_non_clip_paths(auth_client, temp_storage, monkeypatch):
+    import src.reports
+
+    monkeypatch.setattr(src.reports, "generate_pdf_report", lambda **kwargs: b"%PDF-1.4")
+    db_path = temp_storage.db_path
+    temp_storage.save_event(Event(
+        started_at=datetime(2024, 1, 15, 10, 0, 0),
+        ended_at=datetime(2024, 1, 15, 10, 0, 5),
+        duration_sec=5.0,
+        bark_count=3,
+        peak_score=0.8,
+        avg_score=0.7,
+        clip_path="events.sqlite",
+        clip_hash="dbhash",
+    ))
+
+    response = auth_client.get("/api/reports/generate?start_date=2024-01-15&end_date=2024-01-15")
+
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+        names = set(zf.namelist())
+    assert "events.sqlite" not in names
+    assert db_path.exists()
+
+
+def test_logs_api_redacts_generated_credentials(auth_client, monkeypatch):
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args[0],
+            0,
+            stdout=(
+                "2026-06-23 Generated dashboard login credentials: username=admin password=super-secret\n"
+                "2026-06-23 Reset dashboard login credentials: username=admin password=reset-secret\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("src.web.routes.subprocess.run", fake_run)
+
+    response = auth_client.get("/api/logs?service=app&lines=20")
+
+    assert response.status_code == 200
+    lines = response.json()["lines"]
+    assert "super-secret" not in "\n".join(lines)
+    assert "reset-secret" not in "\n".join(lines)
+    assert "password=[REDACTED]" in lines[0]

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 import sqlite3
@@ -7,7 +8,7 @@ import pytest
 
 from src.config import Config, IncidentsConfig, StorageConfig
 from src.incidents import Detection, Incident
-from src.main import DoggyDetector, resample_audio
+from src.main import DoggyDetector, _supervise_task, resample_audio
 
 
 class FakeWeatherClient:
@@ -29,6 +30,14 @@ class FakeRecorder:
     def cancel(self):
         self.is_recording = False
         self.cancelled = True
+
+    def add_audio(self, chunk):
+        pass
+
+
+class BrokenRecorder(FakeRecorder):
+    def add_audio(self, chunk):
+        raise OSError("recording target unavailable")
 
 
 def sample_incident():
@@ -105,7 +114,7 @@ async def test_save_incident_persists_event_when_clip_save_fails(tmp_path, monke
     wav_path = tmp_path / "temp.wav"
     wav_path.write_bytes(b"wav")
     detector.incident_recorder = FakeRecorder(wav_path)
-    monkeypatch.setattr(detector.storage, "save_clip", lambda audio_data, timestamp: (_ for _ in ()).throw(OSError("disk full")))
+    monkeypatch.setattr(detector.storage, "save_clip_file", lambda source_path, timestamp: (_ for _ in ()).throw(OSError("disk full")))
 
     await detector._save_incident(sample_incident())
 
@@ -124,8 +133,8 @@ async def test_save_incident_discards_implausibly_long_recording(tmp_path, monke
     detector.incident_recorder = FakeRecorder(wav_path, duration_seconds=3600.0)
     monkeypatch.setattr(
         detector.storage,
-        "save_clip",
-        lambda audio_data, timestamp: (_ for _ in ()).throw(
+        "save_clip_file",
+        lambda source_path, timestamp: (_ for _ in ()).throw(
             AssertionError("stale clip should not be saved")
         ),
     )
@@ -137,6 +146,31 @@ async def test_save_incident_discards_implausibly_long_recording(tmp_path, monke
     assert events[0].clip_path is None
     assert events[0].clip_hash is None
     assert detector.incident_recorder.cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_save_incident_streams_temp_wav_to_storage(tmp_path, monkeypatch):
+    detector = DoggyDetector(Config(storage=StorageConfig(data_dir=tmp_path)))
+    detector.weather_client = FakeWeatherClient()
+    wav_path = tmp_path / "temp.wav"
+    wav_path.write_bytes(b"wav")
+    detector.incident_recorder = FakeRecorder(wav_path)
+    called = {}
+
+    def fake_save_clip_file(source_path, timestamp):
+        called["source_path"] = source_path
+        called["timestamp"] = timestamp
+        return ("clips/2024-01-15/10-00-00_000.wav", "hash")
+
+    monkeypatch.setattr(detector.storage, "save_clip_file", fake_save_clip_file)
+
+    await detector._save_incident(sample_incident())
+
+    assert called == {
+        "source_path": wav_path,
+        "timestamp": sample_incident().started_at,
+    }
+    assert not wav_path.exists()
 
 
 @pytest.mark.asyncio
@@ -155,3 +189,31 @@ async def test_save_incident_writes_pending_metadata_when_db_fails(tmp_path, mon
     assert len(clip_files) == 1
     assert len(pending_files) == 1
     assert "clips/2024-01-15" in pending_files[0].read_text()
+
+
+def test_recorder_write_failure_cancels_active_recording(tmp_path):
+    detector = DoggyDetector(Config(storage=StorageConfig(data_dir=tmp_path)))
+    recorder = BrokenRecorder(tmp_path / "temp.wav")
+    detector.incident_recorder = recorder
+    chunk = np.zeros((1600, 2), dtype=np.float32)
+
+    detector._append_active_recording(chunk)
+
+    assert recorder.cancelled is True
+    assert recorder.is_recording is False
+    assert "recording target unavailable" in detector.status["audio_error"]
+
+
+@pytest.mark.asyncio
+async def test_supervise_task_requests_shutdown_on_task_failure():
+    shutdown_event = asyncio.Event()
+
+    async def fail():
+        raise RuntimeError("detector crashed")
+
+    task = asyncio.create_task(fail())
+    _supervise_task(task, shutdown_event, "detector")
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert shutdown_event.is_set()

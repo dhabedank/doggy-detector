@@ -26,6 +26,26 @@ ROLLING_BUFFER_SECONDS = 30.0
 DETECTOR_SAMPLE_RATE = 16000
 
 
+def _supervise_task(task: asyncio.Task, shutdown_event: asyncio.Event, name: str) -> None:
+    """Request shutdown if a long-running service task exits unexpectedly."""
+    def _on_done(completed_task: asyncio.Task) -> None:
+        if completed_task.cancelled():
+            return
+        try:
+            error = completed_task.exception()
+        except asyncio.CancelledError:
+            return
+        if error is None and shutdown_event.is_set():
+            return
+        if error is None:
+            logger.error("%s task exited unexpectedly", name)
+        else:
+            logger.error("%s task failed: %s", name, error)
+        shutdown_event.set()
+
+    task.add_done_callback(_on_done)
+
+
 def resample_audio(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
     """Resample audio with linear interpolation for detector input."""
     if source_rate == target_rate or len(audio) == 0:
@@ -201,9 +221,7 @@ class DoggyDetector:
                 self.status["chunks_processed"] += 1
                 self.status["last_audio_chunk_at"] = datetime.now(timezone.utc).isoformat()
 
-                # If incident recording is active, add chunk to recorder
-                if self.incident_recorder.is_recording:
-                    self.incident_recorder.add_audio(chunk)
+                self._append_active_recording(chunk)
 
                 # Calculate RMS audio level (0-1 scale)
                 rms = np.sqrt(np.mean(chunk ** 2))
@@ -327,6 +345,26 @@ class DoggyDetector:
 
             except Exception as e:
                 logger.error(f"Error in process loop: {e}")
+                if self.incident_recorder.is_recording:
+                    logger.error("Canceling active incident recording after process-loop error")
+                    try:
+                        self.incident_recorder.cancel()
+                    except Exception as cancel_error:
+                        logger.error("Failed to cancel active incident recording: %s", cancel_error)
+                self.status["audio_error"] = str(e)
+
+    def _append_active_recording(self, chunk: np.ndarray) -> None:
+        if not self.incident_recorder.is_recording:
+            return
+        try:
+            self.incident_recorder.add_audio(chunk)
+        except Exception as exc:
+            logger.error("Incident recorder write failed; canceling recording: %s", exc)
+            self.status["audio_error"] = f"Incident recorder write failed: {exc}"
+            try:
+                self.incident_recorder.cancel()
+            except Exception as cancel_error:
+                logger.error("Failed to cancel broken incident recording: %s", cancel_error)
 
     def _cancel_discarded_incident_recording(self):
         reason = getattr(self.incident_tracker, "last_discard_reason", None)
@@ -365,15 +403,11 @@ class DoggyDetector:
 
             if temp_wav_path and temp_wav_path.exists():
                 try:
-                    # Read the WAV file
-                    with open(temp_wav_path, "rb") as f:
-                        wav_buffer = f.read()
-
-                    # Save clip via storage
-                    clip_path, clip_hash = self.storage.save_clip(
-                        wav_buffer, incident.started_at
+                    clip_size = temp_wav_path.stat().st_size
+                    clip_path, clip_hash = self.storage.save_clip_file(
+                        temp_wav_path, incident.started_at
                     )
-                    logger.info(f"Saved clip: {clip_path} ({len(wav_buffer) / 1024:.1f} KB)")
+                    logger.info(f"Saved clip: {clip_path} ({clip_size / 1024:.1f} KB)")
 
                     # Clean up temp file
                     temp_wav_path.unlink()
@@ -528,6 +562,7 @@ async def main():
 
     # Start detector task
     detector_task = asyncio.create_task(detector.start())
+    _supervise_task(detector_task, shutdown_event, "detector")
 
     # Start uvicorn server as async task
     config_obj = uvicorn.Config(
@@ -538,6 +573,7 @@ async def main():
     )
     server = uvicorn.Server(config_obj)
     server_task = asyncio.create_task(server.serve())
+    _supervise_task(server_task, shutdown_event, "server")
 
     logger.info(f"Web server starting on {config.web.host}:{config.web.port}")
 
@@ -550,12 +586,22 @@ async def main():
     # Stop detector and server gracefully
     logger.info("Shutting down...")
     await detector.stop()
+    detector_error = None
+    if detector_task.done():
+        try:
+            detector_task.result()
+        except Exception as exc:
+            detector_error = exc
+    else:
+        await detector_task
 
     # Shutdown server
     server.should_exit = True
     await server_task
 
     logger.info("Shutdown complete")
+    if detector_error is not None:
+        raise detector_error
 
 
 if __name__ == "__main__":

@@ -235,6 +235,30 @@ def test_save_clip_does_not_overwrite_same_timestamp(temp_storage):
     assert (temp_storage.data_dir / path2).read_bytes() == b"second"
 
 
+def test_save_clip_file_streams_source_to_clip(temp_storage, tmp_path):
+    timestamp = datetime(2024, 1, 15, 14, 32, 5)
+    source = tmp_path / "source.wav"
+    source.write_bytes(b"streamed audio")
+
+    clip_path, clip_hash = temp_storage.save_clip_file(source, timestamp)
+
+    assert clip_path == "clips/2024-01-15/14-32-05_000.wav"
+    assert (temp_storage.data_dir / clip_path).read_bytes() == b"streamed audio"
+    assert clip_hash == "90aed3a80b7f5286c606978a85d3380272d007e7ef53462381d81777158ccb6a"
+
+
+def test_resolve_clip_path_rejects_non_clip_paths(temp_storage):
+    assert temp_storage.resolve_clip_path("events.sqlite") is None
+    assert temp_storage.resolve_clip_path("../events.sqlite") is None
+    assert temp_storage.resolve_clip_path("clips/../../events.sqlite") is None
+    assert temp_storage.resolve_clip_path("/tmp/test.wav") is None
+    assert temp_storage.resolve_clip_path("clips/2024-01-15/test.mp3") is None
+
+    resolved = temp_storage.resolve_clip_path("clips/2024-01-15/test.wav")
+
+    assert resolved == (temp_storage.data_dir / "clips" / "2024-01-15" / "test.wav").resolve()
+
+
 def test_prune_retention_removes_rows_and_matching_clips(temp_storage):
     now = datetime(2024, 1, 20, 12, 0, 0)
     old_clip = temp_storage.data_dir / "clips" / "2024-01-01" / "old.wav"
@@ -272,6 +296,26 @@ def test_prune_retention_removes_rows_and_matching_clips(temp_storage):
     assert new_clip.exists()
 
 
+def test_prune_retention_does_not_delete_non_clip_paths(temp_storage):
+    now = datetime(2024, 1, 20, 12, 0, 0)
+    db_path = temp_storage.db_path
+    old_id = temp_storage.save_event(Event(
+        started_at=now - timedelta(days=10),
+        ended_at=now - timedelta(days=10, seconds=-5),
+        duration_sec=5.0,
+        bark_count=2,
+        peak_score=0.8,
+        avg_score=0.7,
+        clip_path="events.sqlite",
+    ))
+
+    result = temp_storage.prune_retention(retention_days=7, now=now)
+
+    assert result == {"events_deleted": 1, "clips_deleted": 0}
+    assert temp_storage.get_event(old_id) is None
+    assert db_path.exists()
+
+
 def test_delete_event_removes_row_and_clip(temp_storage):
     clip_path = temp_storage.data_dir / "clips" / "2024-01-15" / "test.wav"
     clip_path.parent.mkdir(parents=True, exist_ok=True)
@@ -293,6 +337,25 @@ def test_delete_event_removes_row_and_clip(temp_storage):
     assert deleted.id == event_id
     assert temp_storage.get_event(event_id) is None
     assert not clip_path.exists()
+
+
+def test_delete_event_does_not_delete_non_clip_paths(temp_storage):
+    db_path = temp_storage.db_path
+    event_id = temp_storage.save_event(Event(
+        started_at=datetime(2024, 1, 15, 10, 0, 0),
+        ended_at=datetime(2024, 1, 15, 10, 0, 5),
+        duration_sec=5.0,
+        bark_count=3,
+        peak_score=0.8,
+        avg_score=0.7,
+        clip_path="events.sqlite",
+    ))
+
+    deleted = temp_storage.delete_event(event_id)
+
+    assert deleted is not None
+    assert temp_storage.get_event(event_id) is None
+    assert db_path.exists()
 
 
 def test_delete_event_missing_returns_none(temp_storage):

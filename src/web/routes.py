@@ -1,11 +1,12 @@
 """API routes for the web dashboard."""
 
 import asyncio
-import io
 import json
 import math
 import logging
+import re
 import subprocess
+import tempfile
 import zipfile
 from dataclasses import asdict
 from datetime import datetime
@@ -48,6 +49,7 @@ LOG_SERVICES = {
     "updater": {"unit": "doggy-detector-updater", "label": "Updater"},
     "update-check": {"unit": "doggy-detector-update-check", "label": "Update Check"},
 }
+ZIP_CHUNK_SIZE = 1024 * 1024
 
 
 class FlagRequest(BaseModel):
@@ -540,7 +542,7 @@ async def get_service_logs(
             "generated_at": datetime.now().isoformat(),
         }
 
-    stdout_lines = result.stdout.splitlines()
+    stdout_lines = [_redact_log_line(line) for line in result.stdout.splitlines()]
     stderr_lines = result.stderr.splitlines()
     return {
         "success": result.returncode == 0,
@@ -721,15 +723,8 @@ async def get_clip(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-    # Build clip path
-    clip_path = storage.data_dir / "clips" / date / filename
-
-    # Security: ensure the requested path is within the clips directory
-    try:
-        clip_path = clip_path.resolve()
-        expected_parent = (storage.data_dir / "clips").resolve()
-        clip_path.relative_to(expected_parent)
-    except ValueError:
+    clip_path = storage.resolve_clip_path(f"clips/{date}/{filename}")
+    if clip_path is None:
         raise HTTPException(status_code=403, detail="Access denied")
 
     # Check if file exists
@@ -795,8 +790,7 @@ async def generate_report(
             detail=f"Failed to generate report: {str(e)}",
         )
 
-    # Create ZIP file in memory
-    zip_buffer = io.BytesIO()
+    zip_buffer = tempfile.TemporaryFile()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
         # Add PDF report
         filename = f"report_{start_date}_to_{end_date}.pdf"
@@ -810,10 +804,8 @@ async def generate_report(
         for event in events:
             if not event.clip_path:
                 continue
-            clip_file = (storage.data_dir / event.clip_path).resolve()
-            try:
-                clip_file.relative_to(storage.data_dir.resolve())
-            except ValueError:
+            clip_file = storage.resolve_clip_path(event.clip_path)
+            if clip_file is None:
                 continue
             if clip_file.exists() and clip_file.is_file():
                 zip_file.write(clip_file, arcname=event.clip_path)
@@ -821,7 +813,7 @@ async def generate_report(
     zip_buffer.seek(0)
 
     return StreamingResponse(
-        iter([zip_buffer.getvalue()]),
+        _iter_file_and_close(zip_buffer),
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename=dog_detector_report_{start_date}_to_{end_date}.zip"},
     )
@@ -979,3 +971,20 @@ def _normalize_optional_device(value: Any) -> Any:
         return int(value)
     except (TypeError, ValueError):
         return value
+
+
+def _redact_log_line(line: str) -> str:
+    if "dashboard login credentials" not in line:
+        return line
+    return re.sub(r"(password=)\S+", r"\1[REDACTED]", line)
+
+
+def _iter_file_and_close(file_obj, chunk_size: int = ZIP_CHUNK_SIZE):
+    try:
+        while True:
+            chunk = file_obj.read(chunk_size)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        file_obj.close()

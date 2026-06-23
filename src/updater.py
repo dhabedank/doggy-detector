@@ -9,6 +9,9 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
@@ -19,6 +22,9 @@ STATE_FILENAME = "update-state.json"
 REQUEST_FILENAME = "update-request.json"
 LOCK_FILENAME = "update.lock"
 LOG_LIMIT = 120
+DEFAULT_HEALTH_URL = "http://127.0.0.1:8080/health"
+DEFAULT_HEALTH_TIMEOUT_SEC = 90.0
+DEFAULT_HEALTH_INTERVAL_SEC = 1.0
 
 
 class UpdateError(RuntimeError):
@@ -159,6 +165,9 @@ def apply_pending_update(
     data_dir: Optional[Path] = None,
     *,
     runner: Optional[Callable[..., subprocess.CompletedProcess[str]]] = None,
+    health_check: Optional[Callable[[], tuple[bool, str]]] = None,
+    health_timeout_sec: float = DEFAULT_HEALTH_TIMEOUT_SEC,
+    health_interval_sec: float = DEFAULT_HEALTH_INTERVAL_SEC,
 ) -> dict[str, Any]:
     """Apply the queued release update, restart the detector, and persist status."""
     project_dir = _project_dir(project_dir)
@@ -206,7 +215,14 @@ def apply_pending_update(
         _merge_state(data_dir, {"resolved_target": resolved_target})
         _run(["git", "checkout", resolved_target], project_dir, data_dir, runner=runner, timeout=120)
         _install_dependencies(project_dir, data_dir, runner=runner)
-        _restart_detector(data_dir, runner=runner)
+        restarted = _restart_detector(data_dir, runner=runner)
+        if restarted:
+            _wait_for_detector_health(
+                data_dir,
+                health_check=health_check,
+                timeout_sec=health_timeout_sec,
+                interval_sec=health_interval_sec,
+            )
 
         _request_path(data_dir).unlink(missing_ok=True)
         _merge_state(data_dir, {
@@ -263,16 +279,59 @@ def _restart_detector(
     data_dir: Path,
     *,
     runner: Optional[Callable[..., subprocess.CompletedProcess[str]]] = None,
-) -> None:
+) -> bool:
     if _env_truthy("DOG_DETECTOR_SKIP_SERVICE_RESTART"):
         append_log(data_dir, "Skipping service restart because DOG_DETECTOR_SKIP_SERVICE_RESTART is set")
-        return
+        return False
 
     systemctl = shutil.which("systemctl") or "/bin/systemctl"
     command = [systemctl, "restart", "doggy-detector"]
     if hasattr(os, "geteuid") and os.geteuid() != 0:
         command = ["sudo", "-n", *command]
     _run(command, Path.cwd(), data_dir, runner=runner, timeout=60)
+    return True
+
+
+def _wait_for_detector_health(
+    data_dir: Path,
+    *,
+    health_check: Optional[Callable[[], tuple[bool, str]]] = None,
+    timeout_sec: float = DEFAULT_HEALTH_TIMEOUT_SEC,
+    interval_sec: float = DEFAULT_HEALTH_INTERVAL_SEC,
+) -> None:
+    if _env_truthy("DOG_DETECTOR_SKIP_HEALTH_CHECK"):
+        append_log(data_dir, "Skipping post-restart health check because DOG_DETECTOR_SKIP_HEALTH_CHECK is set")
+        return
+
+    deadline = time.monotonic() + max(0.0, timeout_sec)
+    last_detail = "not checked"
+    while True:
+        ok, detail = (health_check or _http_detector_health)()
+        if ok:
+            append_log(data_dir, f"Detector health check passed: {detail}")
+            return
+        last_detail = detail
+        if time.monotonic() >= deadline:
+            break
+        sleep_for = min(max(0.0, interval_sec), max(0.0, deadline - time.monotonic()))
+        if sleep_for > 0:
+            time.sleep(sleep_for)
+
+    raise UpdateError(f"Detector health check failed after restart: {last_detail}")
+
+
+def _http_detector_health() -> tuple[bool, str]:
+    health_url = os.environ.get("DOG_DETECTOR_HEALTH_URL", DEFAULT_HEALTH_URL)
+    try:
+        with urllib.request.urlopen(health_url, timeout=3) as response:
+            status_code = response.getcode()
+            if 200 <= status_code < 300:
+                return True, f"HTTP {status_code}"
+            return False, f"HTTP {status_code}"
+    except urllib.error.HTTPError as exc:
+        return False, f"HTTP {exc.code}"
+    except Exception as exc:
+        return False, str(exc)
 
 
 def _attempt_rollback(
