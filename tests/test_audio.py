@@ -3,7 +3,7 @@ import asyncio
 import numpy as np
 from collections import deque
 
-from src.audio import AudioCapture, AudioConfig, RollingBuffer
+from src.audio import AudioCapture, AudioConfig, IncidentRecorder, RollingBuffer
 from src.config import Config, StorageConfig
 from src.main import DoggyDetector
 
@@ -150,3 +150,31 @@ def test_audio_capture_system_default_uses_default_input(monkeypatch):
     assert fake_sd.streams[0].kwargs["device"] is None
     assert fake_sd.streams[0].kwargs["channels"] == 1
     assert capture._mono_mode is True
+
+
+def test_incident_recorder_truncates_before_wav_header_overflow():
+    recorder = IncidentRecorder(sample_rate=16000, channels=2)
+    recorder.start()
+
+    try:
+        bytes_per_frame = recorder._bytes_per_frame
+        max_data_bytes = recorder._max_data_bytes
+        near_limit = max_data_bytes - bytes_per_frame
+
+        # Initialize the wave header, then simulate a real long-running recording
+        # whose RIFF data counter is one frame away from the 32-bit limit.
+        recorder._wav_file.writeframes(b"\0" * bytes_per_frame)
+        recorder._wav_file._datawritten = near_limit
+        recorder._wav_file._datalength = near_limit
+        recorder._bytes_written = near_limit
+        recorder._sample_count = near_limit // bytes_per_frame
+
+        recorder.add_audio(np.zeros((2, 2), dtype=np.float32))
+
+        assert recorder.was_truncated is True
+        assert recorder._bytes_written == max_data_bytes
+        assert recorder._sample_count == max_data_bytes // bytes_per_frame
+    finally:
+        path = recorder.stop()
+        if path:
+            path.unlink(missing_ok=True)

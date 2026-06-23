@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import logging
 import tempfile
 import threading
 import wave
@@ -15,6 +16,13 @@ try:
     import sounddevice as sd
 except ImportError:
     sd = None
+
+logger = logging.getLogger(__name__)
+
+SAMPLE_WIDTH_BYTES = 2
+WAV_UINT32_MAX = 0xFFFFFFFF
+WAV_HEADER_OVERHEAD_BYTES = 36
+WAV_MAX_DATA_BYTES = WAV_UINT32_MAX - WAV_HEADER_OVERHEAD_BYTES
 
 
 class RollingBuffer:
@@ -231,15 +239,25 @@ class IncidentRecorder:
     def __init__(self, sample_rate: int = 16000, channels: int = 2):
         self.sample_rate = sample_rate
         self.channels = channels
+        self._bytes_per_frame = self.channels * SAMPLE_WIDTH_BYTES
+        self._max_data_bytes = WAV_MAX_DATA_BYTES - (
+            WAV_MAX_DATA_BYTES % self._bytes_per_frame
+        )
         self._temp_file: Optional[tempfile.NamedTemporaryFile] = None
         self._wav_file: Optional[wave.Wave_write] = None
         self._recording = False
         self._lock = threading.Lock()
         self._sample_count = 0
+        self._bytes_written = 0
+        self._truncated = False
 
     @property
     def is_recording(self) -> bool:
         return self._recording
+
+    @property
+    def was_truncated(self) -> bool:
+        return self._truncated
 
     @property
     def duration_seconds(self) -> float:
@@ -267,6 +285,8 @@ class IncidentRecorder:
             self._wav_file.setframerate(self.sample_rate)
 
             self._sample_count = 0
+            self._bytes_written = 0
+            self._truncated = False
             self._recording = True
 
             # Write pre-buffer if provided
@@ -286,10 +306,45 @@ class IncidentRecorder:
 
     def _write_samples(self, chunk: np.ndarray):
         """Write samples to WAV file (must hold lock)."""
+        if self._wav_file is None or len(chunk) == 0:
+            return
+
         # Convert float32 to int16
         audio_int16 = (chunk * 32767).astype(np.int16)
-        self._wav_file.writeframes(audio_int16.tobytes())
-        self._sample_count += len(chunk)
+        data = audio_int16.tobytes()
+
+        remaining_bytes = self._max_data_bytes - self._bytes_written
+        if remaining_bytes <= 0:
+            self._mark_truncated()
+            return
+
+        if len(data) > remaining_bytes:
+            allowed_bytes = remaining_bytes - (remaining_bytes % self._bytes_per_frame)
+            if allowed_bytes <= 0:
+                self._mark_truncated()
+                return
+            data = data[:allowed_bytes]
+            self._mark_truncated()
+
+        frames_written = len(data) // self._bytes_per_frame
+        if frames_written == 0:
+            return
+
+        self._wav_file.writeframes(data)
+        self._bytes_written += len(data)
+        self._sample_count += frames_written
+
+    def _mark_truncated(self):
+        if self._truncated:
+            return
+
+        self._truncated = True
+        max_duration = self._max_data_bytes / self._bytes_per_frame / self.sample_rate
+        logger.warning(
+            "Incident recording reached the WAV size limit after %.1f seconds; "
+            "additional audio will be omitted from this clip",
+            max_duration,
+        )
 
     def stop(self) -> Optional[Path]:
         """Stop recording and return path to the WAV file.
@@ -316,6 +371,7 @@ class IncidentRecorder:
                 self._temp_file = None
 
             self._sample_count = 0
+            self._bytes_written = 0
             return path
 
     def cancel(self):
@@ -338,3 +394,5 @@ class IncidentRecorder:
                     pass
 
             self._sample_count = 0
+            self._bytes_written = 0
+            self._truncated = False
