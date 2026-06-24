@@ -230,69 +230,6 @@
         </div>
     </div>
 
-    <!-- Event Detail Modal -->
-    <div class="modal" id="eventDetailModal" role="dialog" aria-modal="true" aria-labelledby="eventDetailModalTitle">
-        <div class="modal-content modal-content-wide">
-            <div class="modal-header">
-                <h2 id="eventDetailModalTitle">Incident Details</h2>
-                <button class="modal-close" id="closeEventDetailBtn" aria-label="Close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <audio id="detailAudioPlayer" class="detail-audio" controls></audio>
-                <div id="detailNoClip" class="detail-no-clip">No saved clip for this incident.</div>
-                <div class="detail-grid">
-                    <div>
-                        <span class="detail-label">Started</span>
-                        <strong id="detailStarted">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">Duration</span>
-                        <strong id="detailDuration">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">Peak score</span>
-                        <strong id="detailPeak">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">Average score</span>
-                        <strong id="detailAverage">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">Threshold used</span>
-                        <strong id="detailThreshold">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">Input level</span>
-                        <strong id="detailAudioLevel">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">Barks</span>
-                        <strong id="detailBarks">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">Direction</span>
-                        <strong id="detailDirection">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">Weather</span>
-                        <strong id="detailWeather">-</strong>
-                    </div>
-                    <div>
-                        <span class="detail-label">False positive</span>
-                        <strong id="detailFalsePositive">-</strong>
-                    </div>
-                </div>
-                <div class="detail-hash">
-                    <span class="detail-label">Clip fingerprint</span>
-                    <code id="detailHash">-</code>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" id="closeEventDetailFooterBtn">Close</button>
-            </div>
-        </div>
-    </div>
-
     <!-- False Positive Modal -->
     <div class="modal" id="falsePositiveModal" role="dialog" aria-modal="true" aria-labelledby="falsePositiveModalTitle">
         <div class="modal-content">

@@ -927,10 +927,6 @@ body {
     animation: slideIn 0.2s;
 }
 
-.modal-content-wide {
-    max-width: 720px;
-}
-
 @keyframes slideIn {
     from {
         transform: translateY(-14px);
@@ -1145,8 +1141,60 @@ select.form-input {
 }
 
 /* ============================================================
-   Event detail modal
+   Event detail page
    ============================================================ */
+
+.detail-page {
+    max-width: 920px;
+}
+
+.detail-page-top {
+    align-items: center;
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+}
+
+.detail-panel {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: 1rem 1.1rem;
+}
+
+.detail-page-header {
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border-2);
+    display: flex;
+    gap: 1rem;
+    justify-content: space-between;
+    margin-bottom: 0.85rem;
+    padding-bottom: 0.85rem;
+}
+
+.detail-page-header h2 {
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-top: 0.15rem;
+}
+
+.detail-page-status {
+    background-color: var(--accent-soft);
+    border: 1px solid #cde4cf;
+    border-radius: var(--radius);
+    color: var(--accent-strong);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.3rem 0.5rem;
+    text-align: right;
+    white-space: nowrap;
+}
 
 .detail-audio {
     width: 100%;
@@ -1193,6 +1241,16 @@ select.form-input {
     font-family: var(--font-mono);
     font-size: 0.78rem;
     color: var(--text-2);
+}
+
+.detail-error {
+    background-color: var(--danger-soft);
+    border: 1px solid #f2c9c5;
+    border-radius: var(--radius);
+    color: var(--danger-strong);
+    font-size: 0.8rem;
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.75rem;
 }
 
 /* ============================================================
@@ -1599,8 +1657,94 @@ select.form-input {
         font-size: 0.8rem;
     }
 
+    .table-container {
+        background-color: transparent;
+        border: none;
+        box-shadow: none;
+        overflow: visible;
+    }
+
+    .events-table,
+    .events-table tbody,
+    .events-table tr,
+    .events-table td {
+        display: block;
+        width: 100%;
+    }
+
+    .events-table thead {
+        display: none;
+    }
+
+    .events-table tbody {
+        display: grid;
+        gap: 0.6rem;
+    }
+
+    .events-table tbody tr {
+        background-color: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        box-shadow: var(--shadow);
+        display: grid;
+        gap: 1px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        overflow: hidden;
+    }
+
+    .events-table tbody tr:hover {
+        background-color: var(--surface);
+    }
+
+    .events-table td {
+        background-color: var(--surface);
+        border-bottom: none;
+        min-width: 0;
+        padding: 0.55rem 0.65rem;
+    }
+
+    .events-table td::before {
+        color: var(--text-2);
+        content: attr(data-label);
+        display: block;
+        font-size: 0.64rem;
+        font-weight: 700;
+        letter-spacing: 0.07em;
+        line-height: 1.2;
+        margin-bottom: 0.18rem;
+        text-transform: uppercase;
+    }
+
+    .events-table .loading-row {
+        display: block;
+        padding: 0.75rem;
+        text-align: center;
+    }
+
+    .events-table .loading-row td {
+        display: block;
+        padding: 0;
+    }
+
+    .events-table .loading-row td::before {
+        display: none;
+    }
+
+    .event-time,
+    .event-duration,
+    .event-score {
+        font-size: 0.85rem;
+    }
+
     .actions {
-        flex-direction: column;
+        display: grid;
+        gap: 0.35rem;
+        grid-column: 1 / -1;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .events-table .actions::before {
+        grid-column: 1 / -1;
     }
 
     .btn-action {
@@ -1630,6 +1774,17 @@ select.form-input {
 
     .deterrence-event em {
         grid-column: 1 / -1;
+    }
+
+    .detail-page-top,
+    .detail-page-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .detail-page-status {
+        text-align: left;
+        white-space: normal;
     }
 
     .update-grid {

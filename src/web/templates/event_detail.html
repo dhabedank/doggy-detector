@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Incident Details - Doggy Detector</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v={{ request.app.state.asset_version }}">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="header-brand">
+                <h1 class="logo">Doggy Detector</h1>
+                <nav class="site-nav" aria-label="Primary">
+                    <a href="/">Dashboard</a>
+                    <a href="/logs">Logs</a>
+                    <a href="/settings">Settings</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <main class="container detail-page" data-event-id="{{ event_id }}">
+        <div class="detail-page-top">
+            <a class="btn btn-secondary" href="/">Back</a>
+            <span class="summary-label">Incident</span>
+        </div>
+
+        <section class="detail-panel">
+            <div class="detail-page-header">
+                <div>
+                    <span class="summary-label">Started</span>
+                    <h2 id="detailStarted">Loading...</h2>
+                </div>
+                <div class="detail-page-status" id="detailFalsePositive">-</div>
+            </div>
+
+            <audio id="detailAudioPlayer" class="detail-audio" controls></audio>
+            <div id="detailNoClip" class="detail-no-clip">No saved clip for this incident.</div>
+
+            <div class="detail-grid detail-grid-page">
+                <div>
+                    <span class="detail-label">Duration</span>
+                    <strong id="detailDuration">-</strong>
+                </div>
+                <div>
+                    <span class="detail-label">Peak score</span>
+                    <strong id="detailPeak">-</strong>
+                </div>
+                <div>
+                    <span class="detail-label">Average score</span>
+                    <strong id="detailAverage">-</strong>
+                </div>
+                <div>
+                    <span class="detail-label">Threshold used</span>
+                    <strong id="detailThreshold">-</strong>
+                </div>
+                <div>
+                    <span class="detail-label">Input level</span>
+                    <strong id="detailAudioLevel">-</strong>
+                </div>
+                <div>
+                    <span class="detail-label">Barks</span>
+                    <strong id="detailBarks">-</strong>
+                </div>
+                <div>
+                    <span class="detail-label">Direction</span>
+                    <strong id="detailDirection">-</strong>
+                </div>
+                <div>
+                    <span class="detail-label">Weather</span>
+                    <strong id="detailWeather">-</strong>
+                </div>
+            </div>
+
+            <div class="detail-hash">
+                <span class="detail-label">Clip fingerprint</span>
+                <code id="detailHash">-</code>
+            </div>
+
+            <div class="detail-error" id="detailError" hidden></div>
+        </section>
+    </main>
+
+    <script src="/static/event-detail.js?v={{ request.app.state.asset_version }}"></script>
+</body>
+</html>

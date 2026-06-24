@@ -9,11 +9,9 @@ let falsePositiveFilter = '';
 
 // Modal state
 let reportModal = null;
-let eventDetailModal = null;
 let falsePositiveModal = null;
 let pendingFalsePositiveEventId = null;
 let selectedFalsePositiveReason = 'speech';
-let eventCache = {};
 let deterrenceRequestInFlight = false;
 
 // Initialize on page load
@@ -34,7 +32,6 @@ document.addEventListener('DOMContentLoaded', function() {
 // Initialize DOM elements
 function initializeElements() {
     reportModal = document.getElementById('reportModal');
-    eventDetailModal = document.getElementById('eventDetailModal');
     falsePositiveModal = document.getElementById('falsePositiveModal');
 }
 
@@ -66,10 +63,6 @@ function setupEventListeners() {
     document.getElementById('fireBothBtn').addEventListener('click', () => fireDeterrence(['both']));
     document.getElementById('fireAudibleBtn').addEventListener('click', () => fireDeterrence(['audible']));
     document.getElementById('fireUltrasonicBtn').addEventListener('click', () => fireDeterrence(['ultrasonic']));
-
-    // Event detail modal listeners
-    document.getElementById('closeEventDetailBtn').addEventListener('click', hideEventDetailModal);
-    document.getElementById('closeEventDetailFooterBtn').addEventListener('click', hideEventDetailModal);
 
     // False-positive reason modal listeners
     document.getElementById('closeFalsePositiveBtn').addEventListener('click', hideFalsePositiveModal);
@@ -106,9 +99,6 @@ function setupEventListeners() {
         if (event.target === reportModal) {
             hideReportModal();
         }
-        if (event.target === eventDetailModal) {
-            hideEventDetailModal();
-        }
         if (event.target === falsePositiveModal) {
             hideFalsePositiveModal();
         }
@@ -121,9 +111,6 @@ function setupEventListeners() {
         }
         if (reportModal.classList.contains('show')) {
             hideReportModal();
-        }
-        if (eventDetailModal.classList.contains('show')) {
-            hideEventDetailModal();
         }
         if (falsePositiveModal.classList.contains('show')) {
             hideFalsePositiveModal();
@@ -182,10 +169,7 @@ function renderEvents(events) {
         return;
     }
 
-    eventCache = {};
-
     tbody.innerHTML = events.map(event => {
-        eventCache[event.id] = event;
         const timestamp = new Date(event.started_at);
         const timeString = timestamp.toLocaleTimeString('en-US', {
             hour: '2-digit',
@@ -207,7 +191,7 @@ function renderEvents(events) {
 
         const direction = renderDirection(event.direction);
 
-        const clipButton = `<button class="btn btn-action btn-play" onclick="showEventDetail('${event.id}')">Details</button>`;
+        const detailLink = `<a class="btn btn-action btn-play" href="/events/${event.id}">Details</a>`;
 
         const isFlaggedFalsePositive = event.is_false_pos || false;
         const flagButtonClass = isFlaggedFalsePositive ? 'btn-flag flagged' : 'btn-flag';
@@ -220,12 +204,12 @@ function renderEvents(events) {
 
         return `
             <tr class="${rowClass}">
-                <td class="event-time" title="${dateString} ${timeString}">${timeString}</td>
-                <td class="event-duration">${duration}s</td>
-                <td class="event-score">${score}%</td>
-                <td>${direction}</td>
-                <td>${clipButton}</td>
-                <td class="actions">${flagButton}${deleteButton}</td>
+                <td class="event-time" data-label="Time" title="${dateString} ${timeString}">${timeString}</td>
+                <td class="event-duration" data-label="Duration">${duration}s</td>
+                <td class="event-score" data-label="Score">${score}%</td>
+                <td data-label="Direction">${direction}</td>
+                <td data-label="Details">${detailLink}</td>
+                <td class="actions" data-label="Actions">${flagButton}${deleteButton}</td>
             </tr>
         `;
     }).join('');
@@ -349,92 +333,6 @@ function deleteEvent(eventId, eventTime) {
         console.error('Error deleting event:', error);
         alert('Error deleting event');
     });
-}
-
-function showEventDetail(eventId) {
-    const cachedEvent = eventCache[eventId];
-    if (cachedEvent) {
-        renderEventDetail(cachedEvent);
-        eventDetailModal.classList.add('show');
-        document.getElementById('closeEventDetailBtn').focus();
-    }
-
-    fetch(`/api/events/${eventId}`)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(event => {
-            eventCache[event.id] = event;
-            const alreadyOpen = eventDetailModal.classList.contains('show');
-            renderEventDetail(event);
-            eventDetailModal.classList.add('show');
-            if (!alreadyOpen) {
-                document.getElementById('closeEventDetailBtn').focus();
-            }
-        })
-        .catch(error => {
-            console.error('Error loading event detail:', error);
-            alert('Error loading incident details');
-        });
-}
-
-function renderEventDetail(event) {
-    const startedAt = new Date(event.started_at);
-    const audio = document.getElementById('detailAudioPlayer');
-    const noClip = document.getElementById('detailNoClip');
-
-    if (event.clip_url) {
-        audio.src = event.clip_url;
-        audio.hidden = false;
-        noClip.hidden = true;
-    } else {
-        audio.removeAttribute('src');
-        audio.hidden = true;
-        noClip.hidden = false;
-    }
-
-    document.getElementById('detailStarted').textContent = startedAt.toLocaleString();
-    document.getElementById('detailDuration').textContent = formatDuration(event.duration_sec);
-    document.getElementById('detailPeak').textContent = formatPercent(event.peak_score);
-    document.getElementById('detailAverage').textContent = formatPercent(event.avg_score);
-    document.getElementById('detailThreshold').textContent = formatThreshold(event.detection_threshold);
-    document.getElementById('detailAudioLevel').textContent = formatAudioLevel(event);
-    document.getElementById('detailBarks').textContent = event.bark_count ?? '-';
-    document.getElementById('detailDirection').textContent = event.direction || 'unknown';
-    document.getElementById('detailWeather').textContent = formatWeather(event);
-    document.getElementById('detailFalsePositive').textContent = event.is_false_pos
-        ? (event.false_pos_reason || 'yes')
-        : 'no';
-    document.getElementById('detailHash').textContent = event.clip_hash || 'No clip fingerprint';
-}
-
-function formatThreshold(value) {
-    if (value === null || value === undefined) {
-        return 'Not recorded';
-    }
-    return Number(value).toFixed(3);
-}
-
-function formatAudioLevel(event) {
-    const peak = event.peak_audio_level;
-    const avg = event.avg_audio_level;
-    if (peak === null || peak === undefined) {
-        return 'Not recorded';
-    }
-    const peakText = `${(Number(peak) * 100).toFixed(0)}% peak`;
-    if (avg === null || avg === undefined) {
-        return peakText;
-    }
-    return `${peakText}, ${(Number(avg) * 100).toFixed(0)}% avg`;
-}
-
-function hideEventDetailModal() {
-    const audio = document.getElementById('detailAudioPlayer');
-    audio.pause();
-    eventDetailModal.classList.remove('show');
 }
 
 // Show report modal
@@ -760,16 +658,6 @@ function formatPercent(value) {
         return '-';
     }
     return `${(Number(value) * 100).toFixed(1)}%`;
-}
-
-function formatWeather(event) {
-    if (event.weather_temp_f === null || event.weather_temp_f === undefined) {
-        return 'not recorded';
-    }
-    const wind = event.weather_wind_mph !== null && event.weather_wind_mph !== undefined
-        ? `, ${Number(event.weather_wind_mph).toFixed(1)} mph`
-        : '';
-    return `${Number(event.weather_temp_f).toFixed(1)} F${wind}, ${event.weather_conditions || 'unknown'}`;
 }
 
 function escapeHtml(value) {

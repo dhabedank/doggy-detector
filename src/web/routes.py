@@ -127,6 +127,17 @@ async def get_logs_page(request: Request):
     return templates.TemplateResponse(request=request, name="logs.html")
 
 
+@router.get("/events/{event_id}")
+async def get_event_detail_page(request: Request, event_id: int):
+    """Serve the incident detail page."""
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request=request,
+        name="event_detail.html",
+        context={"event_id": event_id},
+    )
+
+
 @router.get("/health")
 async def health_check(request: Request):
     """Public health check endpoint."""

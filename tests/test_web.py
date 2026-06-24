@@ -117,8 +117,34 @@ def test_dashboard_shows_compact_ops_not_full_health_panel(auth_client):
     assert response.status_code == 200
     assert "opsStrip" in response.text
     assert "healthChecks" not in response.text
+    assert "eventDetailModal" not in response.text
     assert "/static/app.js?v=" in response.text
     assert 'href="/logs"' in response.text
+
+
+def test_event_detail_page_requires_auth(client, temp_storage):
+    event_id = temp_storage.save_event(Event(
+        started_at=datetime(2024, 1, 15, 10, 0, 0),
+        ended_at=datetime(2024, 1, 15, 10, 0, 5),
+        duration_sec=5.0,
+        bark_count=3,
+        peak_score=0.8,
+        avg_score=0.7,
+    ))
+
+    assert client.get(f"/events/{event_id}").status_code == 401
+
+    login_response = client.post(
+        "/api/auth/login",
+        json={"username": client.app.state.test_username, "password": client.app.state.test_password},
+    )
+    assert login_response.status_code == 200
+
+    response = client.get(f"/events/{event_id}")
+    assert response.status_code == 200
+    assert 'class="container detail-page"' in response.text
+    assert f'data-event-id="{event_id}"' in response.text
+    assert "/static/event-detail.js?v=" in response.text
 
 
 def test_logs_api_reads_whitelisted_journal(auth_client, monkeypatch):
