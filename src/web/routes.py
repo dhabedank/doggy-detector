@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Optional, Any
 
 from fastapi import APIRouter, Request, Query, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 try:
@@ -22,6 +22,7 @@ except ImportError:
     EventSourceResponse = None
 
 from src.health import build_health
+from src.audio import encode_wav_bytes
 from src.deterrence import (
     AUDIBLE_PROFILE_NAMES,
     DEFAULT_AUDIBLE_PROFILE,
@@ -44,6 +45,9 @@ except ImportError:
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+LIVE_LISTEN_SECONDS = 2.0
+LIVE_LISTEN_SAMPLE_RATE = 16000
+LIVE_LISTEN_CHANNELS = 1
 LOG_SERVICES = {
     "app": {"unit": "doggy-detector", "label": "Detector"},
     "updater": {"unit": "doggy-detector-updater", "label": "Updater"},
@@ -245,6 +249,32 @@ async def stream_status(request: Request):
         return StreamingResponse(fallback_generator(), media_type="text/event-stream")
 
     return EventSourceResponse(event_generator())
+
+
+@router.get("/api/listen/live.wav")
+async def live_listen_clip(request: Request):
+    """Return a short live-listen WAV snapshot from the rolling mic buffer."""
+    detector = getattr(request.app.state, "detector", None)
+    audio_capture = getattr(detector, "audio_capture", None)
+    buffer = getattr(audio_capture, "buffer", None)
+    if buffer is None:
+        raise HTTPException(status_code=503, detail="Live audio is not available")
+
+    chunk = buffer.get_last(LIVE_LISTEN_SECONDS)
+    if len(chunk) == 0:
+        raise HTTPException(status_code=503, detail="Waiting for live audio")
+
+    wav_data = encode_wav_bytes(
+        chunk,
+        input_sample_rate=request.app.state.config.audio.sample_rate,
+        sample_rate=LIVE_LISTEN_SAMPLE_RATE,
+        channels=LIVE_LISTEN_CHANNELS,
+    )
+    return Response(
+        content=wav_data,
+        media_type="audio/wav",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/api/devices")
@@ -907,6 +937,7 @@ def _build_status_payload(request: Request) -> dict[str, Any]:
             "audio_error": detector.status.get("audio_error"),
             "mono_mode": bool(detector.status.get("mono_mode", False)),
             "queue_drops": int(detector.status.get("queue_drops", 0) or 0),
+            "last_queue_drop_at": detector.status.get("last_queue_drop_at"),
         }
 
     health = build_health(
@@ -946,6 +977,7 @@ def _event_to_dict(event) -> dict[str, Any]:
         "weather_temp_f": event.weather_temp_f,
         "weather_wind_mph": event.weather_wind_mph,
         "weather_conditions": event.weather_conditions,
+        "bark_markers": event.bark_markers,
         "clip_url": f"/api/{event.clip_path}" if event.clip_path else None,
     }
 

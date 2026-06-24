@@ -35,8 +35,7 @@ config.yaml.migrated
 *.p12
 
 # Private planning notes
-docs/PRD.md
-docs/private/
+docs/
 
 # Logs
 *.log

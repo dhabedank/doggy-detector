@@ -5,7 +5,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Any
 import sqlite3
 import hashlib
 import struct
@@ -31,6 +31,7 @@ class Event:
     weather_temp_f: Optional[float] = None
     weather_wind_mph: Optional[float] = None
     weather_conditions: Optional[str] = None
+    bark_markers: list[dict[str, Any]] = field(default_factory=list)
     id: Optional[int] = None
     created_at: Optional[datetime] = None
 
@@ -82,6 +83,7 @@ class Storage:
                 weather_temp_f     REAL,
                 weather_wind_mph   REAL,
                 weather_conditions TEXT,
+                bark_markers       TEXT,
                 created_at         TEXT NOT NULL
             )
         """)
@@ -119,6 +121,7 @@ class Storage:
             "detection_threshold": "ALTER TABLE events ADD COLUMN detection_threshold REAL",
             "peak_audio_level": "ALTER TABLE events ADD COLUMN peak_audio_level REAL",
             "avg_audio_level": "ALTER TABLE events ADD COLUMN avg_audio_level REAL",
+            "bark_markers": "ALTER TABLE events ADD COLUMN bark_markers TEXT",
         }
         for column, statement in migrations.items():
             if column not in columns:
@@ -133,8 +136,8 @@ class Storage:
                 detection_threshold, peak_audio_level, avg_audio_level,
                 direction, direction_score, clip_path, clip_hash, is_false_pos,
                 false_pos_reason, weather_temp_f, weather_wind_mph, weather_conditions,
-                created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                bark_markers, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.started_at.isoformat(),
@@ -155,6 +158,7 @@ class Storage:
                 _optional_float(event.weather_temp_f),
                 _optional_float(event.weather_wind_mph),
                 event.weather_conditions,
+                _encode_bark_markers(event.bark_markers),
                 datetime.now().isoformat(),
             ),
         )
@@ -396,6 +400,9 @@ class Storage:
             weather_temp_f=_optional_float(row["weather_temp_f"]),
             weather_wind_mph=_optional_float(row["weather_wind_mph"]),
             weather_conditions=_optional_text(row["weather_conditions"]),
+            bark_markers=_decode_bark_markers(
+                row["bark_markers"] if "bark_markers" in row.keys() else None
+            ),
             created_at=(
                 datetime.fromisoformat(_required_text(row["created_at"]))
                 if row["created_at"] else None
@@ -633,3 +640,22 @@ def _optional_text(value) -> Optional[str]:
     if hasattr(value, "item"):
         value = value.item()
     return str(value)
+
+
+def _encode_bark_markers(markers: list[dict[str, Any]]) -> Optional[str]:
+    if not markers:
+        return None
+    return json.dumps(markers, separators=(",", ":"), sort_keys=True)
+
+
+def _decode_bark_markers(value) -> list[dict[str, Any]]:
+    text = _optional_text(value)
+    if not text:
+        return []
+    try:
+        decoded = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(decoded, list):
+        return []
+    return [marker for marker in decoded if isinstance(marker, dict)]

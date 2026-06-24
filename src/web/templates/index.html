@@ -172,17 +172,22 @@
                 </div>
             </div>
             <div class="nav-right">
+                <div class="live-listen-control" id="liveListenControl">
+                    <button class="btn btn-secondary" id="liveListenBtn" aria-pressed="false">Live Listen</button>
+                    <span class="live-listen-state" id="liveListenState">Off</span>
+                </div>
                 <button class="btn btn-secondary" id="generateReportBtn">Export Results</button>
                 <button class="btn btn-secondary" id="refreshBtn">Refresh</button>
             </div>
         </nav>
+        <audio id="liveListenAudio" preload="none" hidden></audio>
 
         <!-- Events Table -->
         <div class="table-container">
             <table class="events-table">
                 <thead>
                     <tr>
-                        <th>Time</th>
+                        <th>Date / Time</th>
                         <th>Duration</th>
                         <th>Score</th>
                         <th>Direction</th>
@@ -214,6 +219,18 @@
                 <button class="modal-close" id="closeReportBtn" aria-label="Close">&times;</button>
             </div>
             <div class="modal-body">
+                <div class="form-group form-group-wide">
+                    <label>Quick Range</label>
+                    <div class="report-range-presets" role="group" aria-label="Report quick ranges">
+                        <button type="button" class="range-preset" data-range="24h">24 hrs</button>
+                        <button type="button" class="range-preset" data-range="7d">1 Week</button>
+                        <button type="button" class="range-preset" data-range="30d">1 Month</button>
+                        <button type="button" class="range-preset" data-range="90d">90 Days</button>
+                        <button type="button" class="range-preset" data-range="6mo">6 Mo</button>
+                        <button type="button" class="range-preset" data-range="1y">1 Year</button>
+                        <button type="button" class="range-preset" data-range="last-year">Last Year</button>
+                    </div>
+                </div>
                 <div class="form-group">
                     <label for="startDate">Start Date</label>
                     <input type="date" id="startDate" class="form-input">

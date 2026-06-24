@@ -13,6 +13,7 @@ from src.config import Config
 from src.storage import Storage
 
 STATE_ORDER = {"ok": 0, "warn": 1, "critical": 2, "unknown": 3}
+QUEUE_DROP_WARN_SECONDS = 300.0
 
 
 def build_health(
@@ -143,8 +144,15 @@ def _add_detector_checks(
         _add_check(checks, "clipping", "ok", "No clipping detected")
 
     queue_drops = int(status.get("queue_drops", 0) or 0)
-    if queue_drops > 0:
-        _add_check(checks, "queue_drops", "warn", f"{queue_drops} audio chunks were dropped")
+    last_queue_drop_at = _parse_datetime(status.get("last_queue_drop_at"))
+    if queue_drops > 0 and last_queue_drop_at:
+        age_sec = (now - last_queue_drop_at).total_seconds()
+        if age_sec <= QUEUE_DROP_WARN_SECONDS:
+            _add_check(checks, "queue_drops", "warn", f"{queue_drops} audio chunks dropped; last drop {age_sec:.0f}s ago")
+        else:
+            _add_check(checks, "queue_drops", "ok", f"{queue_drops} total audio chunks dropped; none recently")
+    elif queue_drops > 0:
+        _add_check(checks, "queue_drops", "ok", f"{queue_drops} total audio chunks dropped; none recently")
     else:
         _add_check(checks, "queue_drops", "ok", "No queue drops")
 
@@ -193,7 +201,20 @@ def _add_disk_check(checks: list[dict[str, str]], data_dir: Path) -> None:
         state = "warn"
     else:
         state = "ok"
-    _add_check(checks, "disk_free", state, f"{free_mb:.0f} MB free")
+    _add_check(
+        checks,
+        "disk_free",
+        state,
+        f"{_format_bytes(usage.free)} free · {_format_bytes(usage.used)} used",
+    )
+
+
+def _format_bytes(value: int) -> str:
+    gb = value / (1024 * 1024 * 1024)
+    if gb >= 1:
+        return f"{gb:.1f} GB"
+    mb = value / (1024 * 1024)
+    return f"{mb:.0f} MB"
 
 
 def _add_temperature_check(checks: list[dict[str, str]]) -> None:

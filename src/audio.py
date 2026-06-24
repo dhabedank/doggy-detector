@@ -86,6 +86,75 @@ class AudioConfig:
     channels: int
 
 
+def prepare_audio_for_wav(
+    chunk: np.ndarray,
+    *,
+    input_sample_rate: int,
+    sample_rate: int,
+    channels: int,
+) -> np.ndarray:
+    """Convert input chunks to a WAV storage/playback format."""
+    if chunk.ndim == 1:
+        prepared = chunk.astype(np.float32, copy=False)
+        if channels > 1:
+            prepared = np.repeat(prepared[:, None], channels, axis=1)
+    elif channels == 1:
+        prepared = np.mean(chunk, axis=1).astype(np.float32, copy=False)
+    elif chunk.shape[1] == channels:
+        prepared = chunk.astype(np.float32, copy=False)
+    elif chunk.shape[1] > channels:
+        prepared = chunk[:, :channels].astype(np.float32, copy=False)
+    else:
+        repeats = [chunk[:, -1:]] * (channels - chunk.shape[1])
+        prepared = np.hstack([chunk, *repeats]).astype(np.float32, copy=False)
+
+    if input_sample_rate != sample_rate:
+        prepared = _resample_audio(prepared, input_sample_rate, sample_rate)
+    return prepared
+
+
+def encode_wav_bytes(
+    chunk: np.ndarray,
+    *,
+    input_sample_rate: int,
+    sample_rate: int = 16000,
+    channels: int = 1,
+) -> bytes:
+    """Encode an audio chunk as 16-bit PCM WAV bytes."""
+    prepared = prepare_audio_for_wav(
+        chunk,
+        input_sample_rate=input_sample_rate,
+        sample_rate=sample_rate,
+        channels=channels,
+    )
+    audio_int16 = (np.clip(prepared, -1.0, 1.0) * 32767).astype(np.int16)
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(SAMPLE_WIDTH_BYTES)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(audio_int16.tobytes())
+    return buffer.getvalue()
+
+
+def _resample_audio(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:
+    if source_rate == target_rate or len(audio) == 0:
+        return audio
+
+    target_samples = max(1, int(round(len(audio) * target_rate / source_rate)))
+    source_positions = np.arange(len(audio), dtype=np.float64)
+    target_positions = np.linspace(0, len(audio) - 1, target_samples, dtype=np.float64)
+
+    if audio.ndim == 1:
+        return np.interp(target_positions, source_positions, audio).astype(np.float32)
+
+    resampled_channels = [
+        np.interp(target_positions, source_positions, audio[:, channel])
+        for channel in range(audio.shape[1])
+    ]
+    return np.column_stack(resampled_channels).astype(np.float32)
+
+
 class AudioCapture:
     """Capture audio from microphone in a background thread."""
 
@@ -236,9 +305,15 @@ class IncidentRecorder:
     instead of keeping everything in memory.
     """
 
-    def __init__(self, sample_rate: int = 16000, channels: int = 2):
+    def __init__(
+        self,
+        sample_rate: int = 16000,
+        channels: int = 2,
+        input_sample_rate: Optional[int] = None,
+    ):
         self.sample_rate = sample_rate
         self.channels = channels
+        self.input_sample_rate = input_sample_rate or sample_rate
         self._bytes_per_frame = self.channels * SAMPLE_WIDTH_BYTES
         self._max_data_bytes = WAV_MAX_DATA_BYTES - (
             WAV_MAX_DATA_BYTES % self._bytes_per_frame
@@ -309,8 +384,11 @@ class IncidentRecorder:
         if self._wav_file is None or len(chunk) == 0:
             return
 
-        # Convert float32 to int16
-        audio_int16 = (chunk * 32767).astype(np.int16)
+        prepared = self._prepare_chunk(chunk)
+        if len(prepared) == 0:
+            return
+
+        audio_int16 = (np.clip(prepared, -1.0, 1.0) * 32767).astype(np.int16)
         data = audio_int16.tobytes()
 
         remaining_bytes = self._max_data_bytes - self._bytes_written
@@ -333,6 +411,14 @@ class IncidentRecorder:
         self._wav_file.writeframes(data)
         self._bytes_written += len(data)
         self._sample_count += frames_written
+
+    def _prepare_chunk(self, chunk: np.ndarray) -> np.ndarray:
+        return prepare_audio_for_wav(
+            chunk,
+            input_sample_rate=self.input_sample_rate,
+            sample_rate=self.sample_rate,
+            channels=self.channels,
+        )
 
     def _mark_truncated(self):
         if self._truncated:

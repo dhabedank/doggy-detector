@@ -59,7 +59,7 @@ def test_storage_migrates_calibration_columns(tmp_path):
     conn = sqlite3.connect(db_path)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(events)").fetchall()}
     conn.close()
-    assert {"detection_threshold", "peak_audio_level", "avg_audio_level"}.issubset(columns)
+    assert {"detection_threshold", "peak_audio_level", "avg_audio_level", "bark_markers"}.issubset(columns)
 
 
 def test_save_event(temp_storage):
@@ -80,6 +80,15 @@ def test_save_event(temp_storage):
         weather_temp_f=72.0,
         weather_wind_mph=5.0,
         weather_conditions="clear",
+        bark_markers=[
+            {
+                "index": 1,
+                "offset_sec": 0.0,
+                "clip_offset_sec": 9.4,
+                "score": 0.87,
+                "direction": "left",
+            }
+        ],
     )
 
     event_id = temp_storage.save_event(event)
@@ -92,6 +101,15 @@ def test_save_event(temp_storage):
     assert retrieved.detection_threshold == 0.12
     assert retrieved.peak_audio_level == 0.34
     assert retrieved.avg_audio_level == 0.22
+    assert retrieved.bark_markers == [
+        {
+            "index": 1,
+            "offset_sec": 0.0,
+            "clip_offset_sec": 9.4,
+            "score": 0.87,
+            "direction": "left",
+        }
+    ]
 
 
 def test_save_event_coerces_numpy_scalars_to_sqlite_real(temp_storage):

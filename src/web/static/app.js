@@ -13,6 +13,9 @@ let falsePositiveModal = null;
 let pendingFalsePositiveEventId = null;
 let selectedFalsePositiveReason = 'speech';
 let deterrenceRequestInFlight = false;
+let selectedReportRange = '30d';
+let liveListenEnabled = false;
+let liveListenTimer = null;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -23,10 +26,7 @@ document.addEventListener('DOMContentLoaded', function() {
     fetchStatus();
     fetchDeterrenceEvents();
 
-    // Set today's date as default for report modal
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('endDate').value = today;
-    document.getElementById('startDate').value = today;
+    applyReportRangePreset('30d');
 });
 
 // Initialize DOM elements
@@ -55,11 +55,21 @@ function setupEventListeners() {
         currentPage = 1;
         fetchEvents();
     });
+    document.getElementById('liveListenBtn').addEventListener('click', toggleLiveListen);
+    document.getElementById('liveListenAudio').addEventListener('ended', queueNextLiveListenChunk);
+    document.getElementById('liveListenAudio').addEventListener('error', handleLiveListenError);
 
     document.getElementById('generateReportBtn').addEventListener('click', showReportModal);
     document.getElementById('closeReportBtn').addEventListener('click', hideReportModal);
     document.getElementById('cancelReportBtn').addEventListener('click', hideReportModal);
     document.getElementById('downloadReportBtn').addEventListener('click', downloadReport);
+    document.querySelectorAll('.range-preset').forEach(button => {
+        button.addEventListener('click', function() {
+            applyReportRangePreset(this.dataset.range);
+        });
+    });
+    document.getElementById('startDate').addEventListener('change', clearReportRangePreset);
+    document.getElementById('endDate').addEventListener('change', clearReportRangePreset);
     document.getElementById('fireBothBtn').addEventListener('click', () => fireDeterrence(['both']));
     document.getElementById('fireAudibleBtn').addEventListener('click', () => fireDeterrence(['audible']));
     document.getElementById('fireUltrasonicBtn').addEventListener('click', () => fireDeterrence(['ultrasonic']));
@@ -179,7 +189,8 @@ function renderEvents(events) {
         });
         const dateString = timestamp.toLocaleDateString('en-US', {
             month: 'short',
-            day: 'numeric'
+            day: 'numeric',
+            year: 'numeric'
         });
 
         const duration = event.duration_sec !== null && event.duration_sec !== undefined
@@ -198,13 +209,17 @@ function renderEvents(events) {
         const flagButtonText = isFlaggedFalsePositive ? 'Unflag' : 'Flag';
 
         const flagButton = `<button class="btn btn-action ${flagButtonClass}" onclick="toggleFlag(this, '${event.id}', ${isFlaggedFalsePositive})">${flagButtonText}</button>`;
-        const deleteButton = `<button class="btn btn-action btn-delete" onclick="deleteEvent('${event.id}', '${timeString.replace(/'/g, "\\'")}')">Delete</button>`;
+        const displayTimestamp = `${dateString} ${timeString}`;
+        const deleteButton = `<button class="btn btn-action btn-delete" onclick="deleteEvent('${event.id}', '${displayTimestamp.replace(/'/g, "\\'")}')">Delete</button>`;
 
         const rowClass = isFlaggedFalsePositive ? 'false-positive' : '';
 
         return `
             <tr class="${rowClass}">
-                <td class="event-time" data-label="Time" title="${dateString} ${timeString}">${timeString}</td>
+                <td class="event-time" data-label="Date / Time" title="${displayTimestamp}">
+                    <span class="event-date">${dateString}</span>
+                    <span class="event-clock">${timeString}</span>
+                </td>
                 <td class="event-duration" data-label="Duration">${duration}s</td>
                 <td class="event-score" data-label="Score">${score}%</td>
                 <td data-label="Direction">${direction}</td>
@@ -346,6 +361,78 @@ function hideReportModal() {
     reportModal.classList.remove('show');
 }
 
+function applyReportRangePreset(range) {
+    selectedReportRange = range;
+    const today = startOfLocalDay(new Date());
+    let start = new Date(today);
+    let end = new Date(today);
+
+    if (range === '24h') {
+        start = addDays(today, -1);
+    } else if (range === '7d') {
+        start = addDays(today, -6);
+    } else if (range === '30d') {
+        start = addDays(today, -29);
+    } else if (range === '90d') {
+        start = addDays(today, -89);
+    } else if (range === '6mo') {
+        start = addMonths(today, -6);
+    } else if (range === '1y') {
+        start = addYears(today, -1);
+    } else if (range === 'last-year') {
+        const lastYear = today.getFullYear() - 1;
+        start = new Date(lastYear, 0, 1);
+        end = new Date(lastYear, 11, 31);
+    }
+
+    document.getElementById('startDate').value = formatDateInput(start);
+    document.getElementById('endDate').value = formatDateInput(end);
+    updateReportRangePresetState();
+}
+
+function clearReportRangePreset() {
+    selectedReportRange = '';
+    updateReportRangePresetState();
+}
+
+function updateReportRangePresetState() {
+    document.querySelectorAll('.range-preset').forEach(button => {
+        button.classList.toggle('active', button.dataset.range === selectedReportRange);
+    });
+}
+
+function startOfLocalDay(date) {
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addDays(date, days) {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+}
+
+function addMonths(date, months) {
+    const result = new Date(date.getFullYear(), date.getMonth(), 1);
+    result.setMonth(result.getMonth() + months);
+    const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+    result.setDate(Math.min(date.getDate(), lastDay));
+    return result;
+}
+
+function addYears(date, years) {
+    const result = new Date(date.getFullYear() + years, date.getMonth(), 1);
+    const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+    result.setDate(Math.min(date.getDate(), lastDay));
+    return result;
+}
+
+function formatDateInput(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
 // Download report package
 function downloadReport() {
     const startDate = document.getElementById('startDate').value;
@@ -366,6 +453,66 @@ function downloadReport() {
 
     // Close modal after initiating download
     setTimeout(hideReportModal, 500);
+}
+
+function toggleLiveListen() {
+    liveListenEnabled = !liveListenEnabled;
+    const button = document.getElementById('liveListenBtn');
+    button.classList.toggle('active', liveListenEnabled);
+    button.setAttribute('aria-pressed', String(liveListenEnabled));
+    button.textContent = liveListenEnabled ? 'Stop Listen' : 'Live Listen';
+
+    if (liveListenEnabled) {
+        setLiveListenState('Starting');
+        playLiveListenChunk();
+    } else {
+        stopLiveListen();
+    }
+}
+
+function playLiveListenChunk() {
+    if (!liveListenEnabled) {
+        return;
+    }
+    const audio = document.getElementById('liveListenAudio');
+    audio.src = `/api/listen/live.wav?t=${Date.now()}`;
+    setLiveListenState('Live');
+    audio.play().catch(error => {
+        console.error('Live listen playback failed:', error);
+        setLiveListenState('Retrying');
+        queueNextLiveListenChunk();
+    });
+}
+
+function queueNextLiveListenChunk() {
+    if (!liveListenEnabled) {
+        return;
+    }
+    clearTimeout(liveListenTimer);
+    liveListenTimer = setTimeout(playLiveListenChunk, 120);
+}
+
+function handleLiveListenError() {
+    if (!liveListenEnabled) {
+        return;
+    }
+    setLiveListenState('Waiting');
+    clearTimeout(liveListenTimer);
+    liveListenTimer = setTimeout(playLiveListenChunk, 1000);
+}
+
+function stopLiveListen() {
+    clearTimeout(liveListenTimer);
+    liveListenTimer = null;
+    const audio = document.getElementById('liveListenAudio');
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    setLiveListenState('Off');
+}
+
+function setLiveListenState(label) {
+    document.getElementById('liveListenState').textContent = label;
 }
 
 function fetchSummary() {

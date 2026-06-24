@@ -665,6 +665,25 @@ body {
     width: auto;
 }
 
+.live-listen-control {
+    align-items: center;
+    display: inline-flex;
+    gap: 0.4rem;
+}
+
+.live-listen-state {
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    min-width: 3.4rem;
+}
+
+.btn.active {
+    background-color: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
 /* ============================================================
    Buttons
    ============================================================ */
@@ -831,6 +850,24 @@ body {
 
 .event-time {
     font-weight: 500;
+}
+
+.event-date,
+.event-clock {
+    display: block;
+}
+
+.event-date {
+    color: var(--text-2);
+    font-size: 0.72rem;
+    line-height: 1.2;
+}
+
+.event-clock {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    line-height: 1.25;
+    margin-top: 0.08rem;
 }
 
 .event-duration,
@@ -1051,6 +1088,35 @@ select.form-input {
     margin-bottom: 0;
 }
 
+.report-range-presets {
+    display: grid;
+    gap: 0.4rem;
+    grid-template-columns: repeat(auto-fit, minmax(5.4rem, 1fr));
+}
+
+.range-preset {
+    background-color: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius);
+    color: var(--text);
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    min-height: 2.1rem;
+    padding: 0.4rem 0.5rem;
+}
+
+.range-preset:hover {
+    border-color: var(--accent);
+}
+
+.range-preset.active {
+    background-color: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-strong);
+}
+
 .form-group-wide {
     grid-column: 1 / -1;
 }
@@ -1209,6 +1275,64 @@ select.form-input {
     border-radius: var(--radius);
     color: var(--text-2);
     font-size: 0.8rem;
+}
+
+.waveform-section {
+    border-bottom: 1px solid var(--border-2);
+    margin-bottom: 0.85rem;
+    padding-bottom: 0.85rem;
+}
+
+.waveform-toolbar {
+    align-items: center;
+    display: flex;
+    gap: 0.6rem;
+    justify-content: space-between;
+    margin-bottom: 0.55rem;
+}
+
+.waveform-controls {
+    align-items: center;
+    display: flex;
+    gap: 0.35rem;
+}
+
+.waveform-icon-btn {
+    aspect-ratio: 1;
+    padding: 0;
+    width: 2rem;
+}
+
+.waveform-zoom-value,
+.waveform-state {
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+}
+
+.waveform-zoom-value {
+    min-width: 2.2rem;
+    text-align: center;
+}
+
+.waveform-frame {
+    background-color: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    height: 178px;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.waveform-canvas {
+    cursor: crosshair;
+    display: block;
+    height: 168px;
+    min-width: 100%;
+}
+
+.waveform-state {
+    margin-top: 0.35rem;
 }
 
 .detail-grid {
@@ -1736,6 +1860,14 @@ select.form-input {
         font-size: 0.85rem;
     }
 
+    .event-date {
+        font-size: 0.76rem;
+    }
+
+    .event-clock {
+        font-size: 0.88rem;
+    }
+
     .actions {
         display: grid;
         gap: 0.35rem;
@@ -1785,6 +1917,15 @@ select.form-input {
     .detail-page-status {
         text-align: left;
         white-space: normal;
+    }
+
+    .waveform-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .waveform-controls {
+        justify-content: space-between;
     }
 
     .update-grid {

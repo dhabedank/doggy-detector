@@ -41,6 +41,22 @@
             <audio id="detailAudioPlayer" class="detail-audio" controls></audio>
             <div id="detailNoClip" class="detail-no-clip">No saved clip for this incident.</div>
 
+            <div class="waveform-section" id="waveformSection" hidden>
+                <div class="waveform-toolbar">
+                    <button class="btn btn-secondary" id="waveformToggleBtn" aria-pressed="false">Show Waveform</button>
+                    <div class="waveform-controls" id="waveformControls" hidden>
+                        <button class="btn btn-action waveform-icon-btn" id="waveformZoomOutBtn" aria-label="Zoom out">-</button>
+                        <span class="waveform-zoom-value" id="waveformZoomValue">1x</span>
+                        <button class="btn btn-action waveform-icon-btn" id="waveformZoomInBtn" aria-label="Zoom in">+</button>
+                        <button class="btn btn-action" id="waveformFitBtn">Fit</button>
+                    </div>
+                </div>
+                <div class="waveform-frame" id="waveformFrame" hidden>
+                    <canvas id="waveformCanvas" class="waveform-canvas"></canvas>
+                </div>
+                <div class="waveform-state" id="waveformState" hidden></div>
+            </div>
+
             <div class="detail-grid detail-grid-page">
                 <div>
                     <span class="detail-label">Duration</span>

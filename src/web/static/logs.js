@@ -68,13 +68,13 @@ function renderLogs(data) {
     state.textContent = data.success ? `${data.label} logs` : 'Log error';
     generated.textContent = `${data.unit || 'unknown'} / ${generatedText}`;
 
-    const lines = data.lines || [];
+    const lines = [...(data.lines || [])].reverse();
     const text = lines.length ? lines.join('\n') : (data.error || 'No log lines returned.');
     output.textContent = data.error ? `${data.error}\n\n${text}` : text;
     output.classList.toggle('logs-output-error', !data.success);
 
     if (followEnabled) {
-        output.scrollTop = output.scrollHeight;
+        output.scrollTop = 0;
     }
 }
 

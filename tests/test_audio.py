@@ -1,10 +1,12 @@
 import pytest
 import asyncio
+import io
 import numpy as np
+import wave
 from collections import deque
 
-from src.audio import AudioCapture, AudioConfig, IncidentRecorder, RollingBuffer
-from src.config import Config, StorageConfig
+from src.audio import AudioCapture, AudioConfig, IncidentRecorder, RollingBuffer, encode_wav_bytes
+from src.config import AudioConfig as AppAudioConfig, Config, StorageConfig
 from src.main import DoggyDetector
 
 
@@ -68,6 +70,17 @@ def test_audio_queue_drop_count(tmp_path):
     detector._enqueue_audio_chunk(np.ones((8000, 2), dtype=np.float32))
 
     assert detector.status["queue_drops"] == 1
+
+
+def test_detector_records_incidents_in_compact_review_format(tmp_path):
+    detector = DoggyDetector(Config(
+        audio=AppAudioConfig(sample_rate=48000, channels=2),
+        storage=StorageConfig(data_dir=tmp_path),
+    ))
+
+    assert detector.incident_recorder.sample_rate == 16000
+    assert detector.incident_recorder.channels == 1
+    assert detector.incident_recorder.input_sample_rate == 48000
 
 
 class FakeStream:
@@ -178,3 +191,44 @@ def test_incident_recorder_truncates_before_wav_header_overflow():
         path = recorder.stop()
         if path:
             path.unlink(missing_ok=True)
+
+
+def test_incident_recorder_can_store_compact_mono_wav():
+    recorder = IncidentRecorder(sample_rate=16000, channels=1, input_sample_rate=48000)
+    left = np.linspace(-0.5, 0.5, 48000, dtype=np.float32)
+    right = np.linspace(0.5, -0.5, 48000, dtype=np.float32)
+    chunk = np.column_stack([left, right])
+    path = None
+    recorder.start()
+
+    try:
+        recorder.add_audio(chunk)
+        path = recorder.stop()
+        assert path is not None
+        with wave.open(str(path), "rb") as wav:
+            assert wav.getnchannels() == 1
+            assert wav.getframerate() == 16000
+            assert wav.getnframes() == 16000
+        assert path.stat().st_size < 40000
+    finally:
+        if recorder.is_recording:
+            path = recorder.stop()
+        if path:
+            path.unlink(missing_ok=True)
+
+
+def test_encode_wav_bytes_compacts_stereo_input_to_mono():
+    chunk = np.ones((48000, 2), dtype=np.float32) * 0.25
+
+    wav_data = encode_wav_bytes(
+        chunk,
+        input_sample_rate=48000,
+        sample_rate=16000,
+        channels=1,
+    )
+
+    with wave.open(io.BytesIO(wav_data), "rb") as wav:
+        assert wav.getnchannels() == 1
+        assert wav.getframerate() == 16000
+        assert wav.getnframes() == 16000
+    assert len(wav_data) < 40000

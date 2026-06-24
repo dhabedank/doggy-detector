@@ -98,9 +98,12 @@ class DoggyDetector:
         )
 
         # Incident recorder for writing long incidents to disk
+        # Store review clips as compact 16 kHz mono WAVs. Live capture stays
+        # stereo for direction analysis; only the saved playback copy is reduced.
         self.incident_recorder = IncidentRecorder(
-            sample_rate=config.audio.sample_rate,
-            channels=config.audio.channels,
+            sample_rate=DETECTOR_SAMPLE_RATE,
+            channels=1,
+            input_sample_rate=config.audio.sample_rate,
         )
 
         # Async queue for thread-safe audio chunk passing
@@ -125,6 +128,7 @@ class DoggyDetector:
             "audio_error": None,
             "mono_mode": False,
             "queue_drops": 0,
+            "last_queue_drop_at": None,
         }
 
     async def start(self):
@@ -188,20 +192,24 @@ class DoggyDetector:
             chunk: Audio chunk from capture thread
         """
         if self._loop is None or self._loop.is_closed():
-            self.status["queue_drops"] += 1
+            self._record_queue_drop()
             return
 
         try:
             self._loop.call_soon_threadsafe(self._enqueue_audio_chunk, chunk.copy())
         except RuntimeError:
-            self.status["queue_drops"] += 1
+            self._record_queue_drop()
 
     def _enqueue_audio_chunk(self, chunk: np.ndarray):
         try:
             self.audio_queue.put_nowait(chunk)
         except asyncio.QueueFull:
-            self.status["queue_drops"] += 1
+            self._record_queue_drop()
             logger.warning("Audio queue full, dropping chunk")
+
+    def _record_queue_drop(self) -> None:
+        self.status["queue_drops"] += 1
+        self.status["last_queue_drop_at"] = datetime.now(timezone.utc).isoformat()
 
     async def _process_loop(self):
         """Main processing loop.
@@ -445,6 +453,7 @@ class DoggyDetector:
                 weather_temp_f=weather.temp_f if weather else None,
                 weather_wind_mph=weather.wind_mph if weather else None,
                 weather_conditions=weather.conditions if weather else None,
+                bark_markers=self._build_bark_markers(incident, recording_duration),
             )
 
             # Save Event to database
@@ -470,6 +479,40 @@ class DoggyDetector:
             + self.config.incidents.merge_within_sec
             + max(1.0, self.config.detection.window_sec * 2)
         )
+
+    def _build_bark_markers(self, incident, recording_duration: float) -> list[dict[str, object]]:
+        detections = getattr(incident, "detections", None) or []
+        if not detections:
+            return []
+
+        active_index = min(max(0, self.config.incidents.min_barks - 1), len(detections) - 1)
+        active_offset = max(
+            0.0,
+            (detections[active_index].timestamp - incident.started_at).total_seconds(),
+        )
+        clip_base_offset = max(0.0, self.config.incidents.pre_roll_sec - active_offset)
+        max_clip_offset = max(0.0, float(recording_duration or 0.0))
+
+        markers = []
+        for index, detection in enumerate(detections, start=1):
+            offset_sec = max(0.0, (detection.timestamp - incident.started_at).total_seconds())
+            clip_offset_sec = clip_base_offset + offset_sec
+            if max_clip_offset > 0:
+                clip_offset_sec = min(clip_offset_sec, max_clip_offset)
+
+            marker = {
+                "index": index,
+                "offset_sec": round(offset_sec, 3),
+                "clip_offset_sec": round(clip_offset_sec, 3),
+                "score": round(float(detection.score), 3),
+                "direction": detection.direction,
+                "direction_score": round(float(detection.direction_score), 3),
+            }
+            if detection.audio_level is not None:
+                marker["audio_level"] = round(float(detection.audio_level), 3)
+            markers.append(marker)
+
+        return markers
 
     def _update_channel_status(self, chunk: np.ndarray):
         """Update lightweight audio channel health metrics."""

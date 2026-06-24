@@ -95,14 +95,55 @@ def test_health_critical_stale_audio(config, storage, stable_platform):
     assert check_map(summary)["stale_audio"]["state"] == "critical"
 
 
+def test_health_warns_for_recent_queue_drops(config, storage, stable_platform):
+    now = datetime.now(timezone.utc)
+    summary = build_health(
+        config,
+        storage,
+        detector=fake_detector(
+            queue_drops=24,
+            last_queue_drop_at=(now - timedelta(seconds=20)).isoformat(),
+        ),
+        now=now,
+    )
+
+    queue_check = check_map(summary)["queue_drops"]
+    assert summary["state"] == "warn"
+    assert queue_check["state"] == "warn"
+    assert queue_check["message"] == "24 audio chunks dropped; last drop 20s ago"
+
+
+def test_health_clears_stale_queue_drop_warning(config, storage, stable_platform):
+    now = datetime.now(timezone.utc)
+    summary = build_health(
+        config,
+        storage,
+        detector=fake_detector(
+            queue_drops=24,
+            last_queue_drop_at=(now - timedelta(minutes=20)).isoformat(),
+        ),
+        now=now,
+    )
+
+    queue_check = check_map(summary)["queue_drops"]
+    assert summary["state"] == "ok"
+    assert queue_check["state"] == "ok"
+    assert queue_check["message"] == "24 total audio chunks dropped; none recently"
+
+
 def test_health_critical_disk_low(config, storage, stable_platform, monkeypatch):
-    usage = SimpleNamespace(total=1000, used=950, free=50 * 1024 * 1024)
+    usage = SimpleNamespace(
+        total=1024 * 1024 * 1024,
+        used=974 * 1024 * 1024,
+        free=50 * 1024 * 1024,
+    )
     monkeypatch.setattr(health.shutil, "disk_usage", lambda path: usage)
 
     summary = build_health(config, storage, detector=fake_detector())
 
     assert summary["state"] == "critical"
     assert check_map(summary)["disk_free"]["state"] == "critical"
+    assert check_map(summary)["disk_free"]["message"] == "50 MB free · 974 MB used"
 
 
 def test_health_unknown_when_detector_missing(config, storage, stable_platform):

@@ -3,12 +3,15 @@ from pathlib import Path
 from datetime import datetime
 import subprocess
 import tempfile
+import wave
 import zipfile
 import io
 import sqlite3
 import struct
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+import numpy as np
 
 from src.web.app import create_app
 from src.config import Config, SettingsStore
@@ -118,6 +121,10 @@ def test_dashboard_shows_compact_ops_not_full_health_panel(auth_client):
     assert "opsStrip" in response.text
     assert "healthChecks" not in response.text
     assert "eventDetailModal" not in response.text
+    assert "Date / Time" in response.text
+    assert "Live Listen" in response.text
+    assert 'data-range="30d"' in response.text
+    assert 'data-range="last-year"' in response.text
     assert "/static/app.js?v=" in response.text
     assert 'href="/logs"' in response.text
 
@@ -144,6 +151,8 @@ def test_event_detail_page_requires_auth(client, temp_storage):
     assert response.status_code == 200
     assert 'class="container detail-page"' in response.text
     assert f'data-event-id="{event_id}"' in response.text
+    assert "waveformToggleBtn" in response.text
+    assert "waveformCanvas" in response.text
     assert "/static/event-detail.js?v=" in response.text
 
 
@@ -219,6 +228,7 @@ def test_list_events_with_data(auth_client, temp_storage):
         avg_audio_level=0.22,
         direction="center",
         clip_path="clips/2024-01-15/10-00-00_000.wav",
+        bark_markers=[{"index": 1, "offset_sec": 0.0, "clip_offset_sec": 9.5, "score": 0.8}],
     )
     temp_storage.save_event(event)
 
@@ -236,6 +246,9 @@ def test_list_events_with_data(auth_client, temp_storage):
     assert data["events"][0]["avg_audio_level"] == 0.22
     assert data["events"][0]["direction"] == "center"
     assert data["events"][0]["clip_url"] == "/api/clips/2024-01-15/10-00-00_000.wav"
+    assert data["events"][0]["bark_markers"] == [
+        {"index": 1, "offset_sec": 0.0, "clip_offset_sec": 9.5, "score": 0.8}
+    ]
     assert "clip_hash" in data["events"][0]
 
 
@@ -298,6 +311,7 @@ def test_get_event_detail(auth_client, temp_storage):
         weather_temp_f=72.0,
         weather_wind_mph=3.0,
         weather_conditions="clear",
+        bark_markers=[{"index": 1, "offset_sec": 0.0, "clip_offset_sec": 10.0, "score": 0.8}],
     )
     event_id = temp_storage.save_event(event)
 
@@ -308,6 +322,9 @@ def test_get_event_detail(auth_client, temp_storage):
     assert data["id"] == event_id
     assert data["clip_hash"] == "abc123"
     assert data["weather_conditions"] == "clear"
+    assert data["bark_markers"] == [
+        {"index": 1, "offset_sec": 0.0, "clip_offset_sec": 10.0, "score": 0.8}
+    ]
 
 
 def test_flag_event(auth_client, temp_storage):
@@ -786,3 +803,30 @@ def test_logs_api_redacts_generated_credentials(auth_client, monkeypatch):
     assert "super-secret" not in "\n".join(lines)
     assert "reset-secret" not in "\n".join(lines)
     assert "password=[REDACTED]" in lines[0]
+
+
+def test_live_listen_requires_auth(client):
+    response = client.get("/api/listen/live.wav")
+
+    assert response.status_code == 401
+
+
+def test_live_listen_returns_compact_wav(auth_client):
+    class FakeBuffer:
+        def get_last(self, seconds):
+            assert seconds == 2.0
+            return np.zeros((48000, 2), dtype=np.float32)
+
+    auth_client.app.state.detector = SimpleNamespace(
+        audio_capture=SimpleNamespace(buffer=FakeBuffer()),
+    )
+    auth_client.app.state.config.audio.sample_rate = 48000
+
+    response = auth_client.get("/api/listen/live.wav")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    with wave.open(io.BytesIO(response.content), "rb") as wav:
+        assert wav.getnchannels() == 1
+        assert wav.getframerate() == 16000
+        assert wav.getnframes() == 16000

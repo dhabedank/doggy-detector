@@ -53,6 +53,36 @@ def sample_incident():
     )
 
 
+def sample_incident_with_detections():
+    now = datetime(2024, 1, 15, 10, 0, 0)
+    detections = [
+        Detection(
+            timestamp=now,
+            score=0.72,
+            direction="left",
+            direction_score=0.81,
+            audio_level=0.2,
+        ),
+        Detection(
+            timestamp=now + timedelta(seconds=0.6),
+            score=0.84,
+            direction="left",
+            direction_score=0.9,
+            audio_level=0.3,
+        ),
+    ]
+    return Incident(
+        started_at=now,
+        ended_at=now + timedelta(seconds=2),
+        bark_count=2,
+        peak_score=0.84,
+        avg_score=0.78,
+        direction="left",
+        direction_score=0.86,
+        detections=detections,
+    )
+
+
 def test_resample_audio_preserves_duration_and_channels():
     audio = np.column_stack(
         [
@@ -171,6 +201,47 @@ async def test_save_incident_streams_temp_wav_to_storage(tmp_path, monkeypatch):
         "timestamp": sample_incident().started_at,
     }
     assert not wav_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_save_incident_persists_bark_markers(tmp_path, monkeypatch):
+    detector = DoggyDetector(Config(
+        incidents=IncidentsConfig(pre_roll_sec=10.0),
+        storage=StorageConfig(data_dir=tmp_path),
+    ))
+    detector.weather_client = FakeWeatherClient()
+    wav_path = tmp_path / "temp.wav"
+    wav_path.write_bytes(b"wav")
+    detector.incident_recorder = FakeRecorder(wav_path, duration_seconds=14.0)
+    monkeypatch.setattr(
+        detector.storage,
+        "save_clip_file",
+        lambda source_path, timestamp: ("clips/2024-01-15/10-00-00_000.wav", "hash"),
+    )
+
+    await detector._save_incident(sample_incident_with_detections())
+
+    event = detector.storage.list_events()[0]
+    assert event.bark_markers == [
+        {
+            "index": 1,
+            "offset_sec": 0.0,
+            "clip_offset_sec": 9.4,
+            "score": 0.72,
+            "direction": "left",
+            "direction_score": 0.81,
+            "audio_level": 0.2,
+        },
+        {
+            "index": 2,
+            "offset_sec": 0.6,
+            "clip_offset_sec": 10.0,
+            "score": 0.84,
+            "direction": "left",
+            "direction_score": 0.9,
+            "audio_level": 0.3,
+        },
+    ]
 
 
 @pytest.mark.asyncio
