@@ -1,9 +1,9 @@
 import pytest
+import asyncio
 from pathlib import Path
 from datetime import datetime
 import subprocess
 import tempfile
-import wave
 import zipfile
 import io
 import sqlite3
@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import numpy as np
 
 from src.web.app import create_app
+from src.web.routes import _iter_live_listen_stream
 from src.config import Config, SettingsStore
 from src.deterrence import ActuatorResult
 from src.storage import Storage, Event
@@ -811,22 +812,36 @@ def test_live_listen_requires_auth(client):
     assert response.status_code == 401
 
 
-def test_live_listen_returns_compact_wav(auth_client):
-    class FakeBuffer:
-        def get_last(self, seconds):
-            assert seconds == 2.0
-            return np.zeros((48000, 2), dtype=np.float32)
+@pytest.mark.asyncio
+async def test_live_listen_streams_compact_wav():
+    class FakeDetector:
+        def __init__(self):
+            self.unsubscribed = False
 
-    auth_client.app.state.detector = SimpleNamespace(
-        audio_capture=SimpleNamespace(buffer=FakeBuffer()),
+        def unsubscribe_live_audio(self, queue):
+            self.unsubscribed = True
+
+    class FakeRequest:
+        async def is_disconnected(self):
+            return False
+
+    detector = FakeDetector()
+    queue = asyncio.Queue()
+    queue.put_nowait(np.zeros((48000, 2), dtype=np.float32))
+    stream = _iter_live_listen_stream(
+        request=FakeRequest(),
+        detector=detector,
+        queue=queue,
+        input_sample_rate=48000,
     )
-    auth_client.app.state.config.audio.sample_rate = 48000
 
-    response = auth_client.get("/api/listen/live.wav")
+    header = await anext(stream)
+    data = await anext(stream)
+    await stream.aclose()
 
-    assert response.status_code == 200
-    assert response.headers["content-type"] == "audio/wav"
-    with wave.open(io.BytesIO(response.content), "rb") as wav:
-        assert wav.getnchannels() == 1
-        assert wav.getframerate() == 16000
-        assert wav.getnframes() == 16000
+    assert header.startswith(b"RIFF")
+    assert header[8:12] == b"WAVE"
+    assert header[12:16] == b"fmt "
+    assert header[36:40] == b"data"
+    assert len(data) == 32000
+    assert detector.unsubscribed is True

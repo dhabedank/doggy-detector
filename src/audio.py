@@ -1,8 +1,8 @@
 """Audio capture and rolling buffer."""
 
-import asyncio
 import io
 import logging
+import struct
 import tempfile
 import threading
 import wave
@@ -23,6 +23,7 @@ SAMPLE_WIDTH_BYTES = 2
 WAV_UINT32_MAX = 0xFFFFFFFF
 WAV_HEADER_OVERHEAD_BYTES = 36
 WAV_MAX_DATA_BYTES = WAV_UINT32_MAX - WAV_HEADER_OVERHEAD_BYTES
+WAV_STREAM_DATA_BYTES = 0x7FFFFFFF
 
 
 class RollingBuffer:
@@ -135,6 +136,47 @@ def encode_wav_bytes(
         wav_file.setframerate(sample_rate)
         wav_file.writeframes(audio_int16.tobytes())
     return buffer.getvalue()
+
+
+def encode_pcm16_bytes(
+    chunk: np.ndarray,
+    *,
+    input_sample_rate: int,
+    sample_rate: int = 16000,
+    channels: int = 1,
+) -> bytes:
+    """Encode an audio chunk as raw 16-bit PCM bytes."""
+    prepared = prepare_audio_for_wav(
+        chunk,
+        input_sample_rate=input_sample_rate,
+        sample_rate=sample_rate,
+        channels=channels,
+    )
+    return (np.clip(prepared, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+
+
+def wav_stream_header(*, sample_rate: int = 16000, channels: int = 1) -> bytes:
+    """Return a WAV header suitable for a long-lived PCM stream."""
+    byte_rate = sample_rate * channels * SAMPLE_WIDTH_BYTES
+    block_align = channels * SAMPLE_WIDTH_BYTES
+    riff_size = WAV_HEADER_OVERHEAD_BYTES + WAV_STREAM_DATA_BYTES
+    return b"".join(
+        [
+            b"RIFF",
+            struct.pack("<I", riff_size),
+            b"WAVE",
+            b"fmt ",
+            struct.pack("<I", 16),
+            struct.pack("<H", 1),
+            struct.pack("<H", channels),
+            struct.pack("<I", sample_rate),
+            struct.pack("<I", byte_rate),
+            struct.pack("<H", block_align),
+            struct.pack("<H", SAMPLE_WIDTH_BYTES * 8),
+            b"data",
+            struct.pack("<I", WAV_STREAM_DATA_BYTES),
+        ]
+    )
 
 
 def _resample_audio(audio: np.ndarray, source_rate: int, target_rate: int) -> np.ndarray:

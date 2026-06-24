@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Optional, Any
 
 from fastapi import APIRouter, Request, Query, HTTPException
-from fastapi.responses import FileResponse, Response, StreamingResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 try:
@@ -22,7 +22,7 @@ except ImportError:
     EventSourceResponse = None
 
 from src.health import build_health
-from src.audio import encode_wav_bytes
+from src.audio import encode_pcm16_bytes, wav_stream_header
 from src.deterrence import (
     AUDIBLE_PROFILE_NAMES,
     DEFAULT_AUDIBLE_PROFILE,
@@ -45,9 +45,9 @@ except ImportError:
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-LIVE_LISTEN_SECONDS = 2.0
 LIVE_LISTEN_SAMPLE_RATE = 16000
 LIVE_LISTEN_CHANNELS = 1
+LIVE_LISTEN_QUEUE_TIMEOUT_SEC = 2.0
 LOG_SERVICES = {
     "app": {"unit": "doggy-detector", "label": "Detector"},
     "updater": {"unit": "doggy-detector-updater", "label": "Updater"},
@@ -253,28 +253,67 @@ async def stream_status(request: Request):
 
 @router.get("/api/listen/live.wav")
 async def live_listen_clip(request: Request):
-    """Return a short live-listen WAV snapshot from the rolling mic buffer."""
+    """Stream live microphone audio as a long-lived WAV response."""
     detector = getattr(request.app.state, "detector", None)
     audio_capture = getattr(detector, "audio_capture", None)
-    buffer = getattr(audio_capture, "buffer", None)
-    if buffer is None:
+    if (
+        detector is None
+        or not hasattr(detector, "subscribe_live_audio")
+        or audio_capture is None
+        or not getattr(audio_capture, "is_running", False)
+    ):
         raise HTTPException(status_code=503, detail="Live audio is not available")
 
-    chunk = buffer.get_last(LIVE_LISTEN_SECONDS)
-    if len(chunk) == 0:
-        raise HTTPException(status_code=503, detail="Waiting for live audio")
+    queue = detector.subscribe_live_audio()
 
-    wav_data = encode_wav_bytes(
-        chunk,
-        input_sample_rate=request.app.state.config.audio.sample_rate,
+    return StreamingResponse(
+        _iter_live_listen_stream(
+            request=request,
+            detector=detector,
+            queue=queue,
+            input_sample_rate=request.app.state.config.audio.sample_rate,
+        ),
+        media_type="audio/wav",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def _iter_live_listen_stream(
+    *,
+    request: Request,
+    detector,
+    queue: asyncio.Queue,
+    input_sample_rate: int,
+):
+    yield wav_stream_header(
         sample_rate=LIVE_LISTEN_SAMPLE_RATE,
         channels=LIVE_LISTEN_CHANNELS,
     )
-    return Response(
-        content=wav_data,
-        media_type="audio/wav",
-        headers={"Cache-Control": "no-store"},
-    )
+    try:
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                chunk = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=LIVE_LISTEN_QUEUE_TIMEOUT_SEC,
+                )
+            except asyncio.TimeoutError:
+                continue
+
+            data = encode_pcm16_bytes(
+                chunk,
+                input_sample_rate=input_sample_rate,
+                sample_rate=LIVE_LISTEN_SAMPLE_RATE,
+                channels=LIVE_LISTEN_CHANNELS,
+            )
+            if data:
+                yield data
+    finally:
+        detector.unsubscribe_live_audio(queue)
 
 
 @router.get("/api/devices")

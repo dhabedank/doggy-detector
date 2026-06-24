@@ -15,7 +15,6 @@ let selectedFalsePositiveReason = 'speech';
 let deterrenceRequestInFlight = false;
 let selectedReportRange = '30d';
 let liveListenEnabled = false;
-let liveListenTimer = null;
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -56,7 +55,7 @@ function setupEventListeners() {
         fetchEvents();
     });
     document.getElementById('liveListenBtn').addEventListener('click', toggleLiveListen);
-    document.getElementById('liveListenAudio').addEventListener('ended', queueNextLiveListenChunk);
+    document.getElementById('liveListenAudio').addEventListener('ended', handleLiveListenEnded);
     document.getElementById('liveListenAudio').addEventListener('error', handleLiveListenError);
 
     document.getElementById('generateReportBtn').addEventListener('click', showReportModal);
@@ -464,46 +463,40 @@ function toggleLiveListen() {
 
     if (liveListenEnabled) {
         setLiveListenState('Starting');
-        playLiveListenChunk();
+        startLiveListenStream();
     } else {
         stopLiveListen();
     }
 }
 
-function playLiveListenChunk() {
+function startLiveListenStream() {
     if (!liveListenEnabled) {
         return;
     }
     const audio = document.getElementById('liveListenAudio');
     audio.src = `/api/listen/live.wav?t=${Date.now()}`;
-    setLiveListenState('Live');
+    setLiveListenState('Streaming');
     audio.play().catch(error => {
         console.error('Live listen playback failed:', error);
-        setLiveListenState('Retrying');
-        queueNextLiveListenChunk();
+        disableLiveListen('Unavailable');
     });
 }
 
-function queueNextLiveListenChunk() {
+function handleLiveListenEnded() {
     if (!liveListenEnabled) {
         return;
     }
-    clearTimeout(liveListenTimer);
-    liveListenTimer = setTimeout(playLiveListenChunk, 120);
+    disableLiveListen('Ended');
 }
 
 function handleLiveListenError() {
     if (!liveListenEnabled) {
         return;
     }
-    setLiveListenState('Waiting');
-    clearTimeout(liveListenTimer);
-    liveListenTimer = setTimeout(playLiveListenChunk, 1000);
+    disableLiveListen('Error');
 }
 
 function stopLiveListen() {
-    clearTimeout(liveListenTimer);
-    liveListenTimer = null;
     const audio = document.getElementById('liveListenAudio');
     audio.pause();
     audio.removeAttribute('src');
@@ -513,6 +506,16 @@ function stopLiveListen() {
 
 function setLiveListenState(label) {
     document.getElementById('liveListenState').textContent = label;
+}
+
+function disableLiveListen(label) {
+    liveListenEnabled = false;
+    const button = document.getElementById('liveListenBtn');
+    button.classList.remove('active');
+    button.setAttribute('aria-pressed', 'false');
+    button.textContent = 'Live Listen';
+    stopLiveListen();
+    setLiveListenState(label);
 }
 
 function fetchSummary() {

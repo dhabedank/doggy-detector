@@ -108,6 +108,7 @@ class DoggyDetector:
 
         # Async queue for thread-safe audio chunk passing
         self.audio_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self.live_audio_queues: set[asyncio.Queue] = set()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._retention_task: Optional[asyncio.Task] = None
         self._running = False
@@ -201,6 +202,7 @@ class DoggyDetector:
             self._record_queue_drop()
 
     def _enqueue_audio_chunk(self, chunk: np.ndarray):
+        self._publish_live_audio_chunk(chunk)
         try:
             self.audio_queue.put_nowait(chunk)
         except asyncio.QueueFull:
@@ -210,6 +212,26 @@ class DoggyDetector:
     def _record_queue_drop(self) -> None:
         self.status["queue_drops"] += 1
         self.status["last_queue_drop_at"] = datetime.now(timezone.utc).isoformat()
+
+    def subscribe_live_audio(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=8)
+        self.live_audio_queues.add(queue)
+        return queue
+
+    def unsubscribe_live_audio(self, queue: asyncio.Queue) -> None:
+        self.live_audio_queues.discard(queue)
+
+    def _publish_live_audio_chunk(self, chunk: np.ndarray) -> None:
+        for queue in list(self.live_audio_queues):
+            while queue.full():
+                try:
+                    queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            try:
+                queue.put_nowait(chunk)
+            except asyncio.QueueFull:
+                pass
 
     async def _process_loop(self):
         """Main processing loop.

@@ -5,7 +5,15 @@ import numpy as np
 import wave
 from collections import deque
 
-from src.audio import AudioCapture, AudioConfig, IncidentRecorder, RollingBuffer, encode_wav_bytes
+from src.audio import (
+    AudioCapture,
+    AudioConfig,
+    IncidentRecorder,
+    RollingBuffer,
+    encode_pcm16_bytes,
+    encode_wav_bytes,
+    wav_stream_header,
+)
 from src.config import AudioConfig as AppAudioConfig, Config, StorageConfig
 from src.main import DoggyDetector
 
@@ -70,6 +78,18 @@ def test_audio_queue_drop_count(tmp_path):
     detector._enqueue_audio_chunk(np.ones((8000, 2), dtype=np.float32))
 
     assert detector.status["queue_drops"] == 1
+
+
+def test_live_audio_subscribers_receive_latest_chunk(tmp_path):
+    detector = DoggyDetector(Config(storage=StorageConfig(data_dir=tmp_path)))
+    queue = detector.subscribe_live_audio()
+    chunk = np.ones((8000, 2), dtype=np.float32)
+
+    detector._publish_live_audio_chunk(chunk)
+
+    assert np.array_equal(queue.get_nowait(), chunk)
+    detector.unsubscribe_live_audio(queue)
+    assert queue not in detector.live_audio_queues
 
 
 def test_detector_records_incidents_in_compact_review_format(tmp_path):
@@ -232,3 +252,29 @@ def test_encode_wav_bytes_compacts_stereo_input_to_mono():
         assert wav.getframerate() == 16000
         assert wav.getnframes() == 16000
     assert len(wav_data) < 40000
+
+
+def test_encode_pcm16_bytes_compacts_stereo_input_to_mono():
+    chunk = np.ones((48000, 2), dtype=np.float32) * 0.25
+
+    pcm_data = encode_pcm16_bytes(
+        chunk,
+        input_sample_rate=48000,
+        sample_rate=16000,
+        channels=1,
+    )
+
+    assert len(pcm_data) == 16000 * 2
+
+
+def test_wav_stream_header_describes_pcm_stream():
+    header = wav_stream_header(sample_rate=16000, channels=1)
+
+    assert len(header) == 44
+    assert header[0:4] == b"RIFF"
+    assert header[8:12] == b"WAVE"
+    assert header[12:16] == b"fmt "
+    assert int.from_bytes(header[22:24], "little") == 1
+    assert int.from_bytes(header[24:28], "little") == 16000
+    assert int.from_bytes(header[34:36], "little") == 16
+    assert header[36:40] == b"data"
