@@ -209,7 +209,7 @@ function updateTimingSummary() {
     const finalizeAfter = gapSec + mergeWithinSec;
 
     document.getElementById('incidentTimingSummary').textContent =
-        `Current rule: start after ${minBarks} bark detection${minBarks === 1 ? '' : 's'}, ` +
+        `Current rule: start after ${minBarks} positive detection window${minBarks === 1 ? '' : 's'}, ` +
         `enter cooldown after ${gapSec}s without a bark above threshold, ` +
         `save after ${finalizeAfter}s without a new bark, and include ${preRollSec}s of pre-roll audio.`;
 }

@@ -98,6 +98,9 @@ def test_generate_html_report(sample_events, location):
     assert "does not make a legal conclusion" in html
     assert "The ZIP includes the PDF, CSV" in html
     assert "False positives excluded by report filter" not in html
+    assert "<th>Barks</th>" not in html
+    assert '<span class="metric-label">Barks</span>' not in html
+    assert "bark count" not in html.lower()
     assert "<th>Score</th>" in html
     assert "T 0.050" in html
     assert "L 0.34" in html
@@ -149,5 +152,6 @@ def test_generate_zip_excludes_false_positive_clip(sample_events, location):
         assert "clips/2024-01-15/10-30-00_000.wav" in names
         assert "clips/2024-01-15/false.wav" not in names
         assert "Clip Hash" in csv_text
+        assert "Bark Count" not in csv_text
         assert "abc123def4567890fullhash" in csv_text
         assert "falsehash" not in csv_text

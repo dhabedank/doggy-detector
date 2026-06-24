@@ -410,7 +410,7 @@ class DoggyDetector:
         """
         recording_duration = self.incident_recorder.duration_seconds
         logger.info(
-            f"Saving incident: {incident.bark_count} barks, "
+            f"Saving incident: {incident.bark_count} bark-positive windows, "
             f"duration={incident.duration_sec:.1f}s, "
             f"recording={recording_duration:.1f}s"
         )
@@ -475,7 +475,6 @@ class DoggyDetector:
                 weather_temp_f=weather.temp_f if weather else None,
                 weather_wind_mph=weather.wind_mph if weather else None,
                 weather_conditions=weather.conditions if weather else None,
-                bark_markers=self._build_bark_markers(incident, recording_duration),
             )
 
             # Save Event to database
@@ -501,40 +500,6 @@ class DoggyDetector:
             + self.config.incidents.merge_within_sec
             + max(1.0, self.config.detection.window_sec * 2)
         )
-
-    def _build_bark_markers(self, incident, recording_duration: float) -> list[dict[str, object]]:
-        detections = getattr(incident, "detections", None) or []
-        if not detections:
-            return []
-
-        active_index = min(max(0, self.config.incidents.min_barks - 1), len(detections) - 1)
-        active_offset = max(
-            0.0,
-            (detections[active_index].timestamp - incident.started_at).total_seconds(),
-        )
-        clip_base_offset = max(0.0, self.config.incidents.pre_roll_sec - active_offset)
-        max_clip_offset = max(0.0, float(recording_duration or 0.0))
-
-        markers = []
-        for index, detection in enumerate(detections, start=1):
-            offset_sec = max(0.0, (detection.timestamp - incident.started_at).total_seconds())
-            clip_offset_sec = clip_base_offset + offset_sec
-            if max_clip_offset > 0:
-                clip_offset_sec = min(clip_offset_sec, max_clip_offset)
-
-            marker = {
-                "index": index,
-                "offset_sec": round(offset_sec, 3),
-                "clip_offset_sec": round(clip_offset_sec, 3),
-                "score": round(float(detection.score), 3),
-                "direction": detection.direction,
-                "direction_score": round(float(detection.direction_score), 3),
-            }
-            if detection.audio_level is not None:
-                marker["audio_level"] = round(float(detection.audio_level), 3)
-            markers.append(marker)
-
-        return markers
 
     def _update_channel_status(self, chunk: np.ndarray):
         """Update lightweight audio channel health metrics."""

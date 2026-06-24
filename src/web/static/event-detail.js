@@ -83,7 +83,6 @@ function renderEventDetail(event) {
     document.getElementById('detailAverage').textContent = formatPercent(event.avg_score);
     document.getElementById('detailThreshold').textContent = formatThreshold(event.detection_threshold);
     document.getElementById('detailAudioLevel').textContent = formatAudioLevel(event);
-    document.getElementById('detailBarks').textContent = event.bark_count ?? '-';
     document.getElementById('detailDirection').textContent = event.direction || 'unknown';
     document.getElementById('detailWeather').textContent = formatWeather(event);
     document.getElementById('detailFalsePositive').textContent = event.is_false_pos
@@ -123,7 +122,7 @@ async function toggleWaveform() {
     setWaveformState('Loading');
     try {
         await ensureWaveformLoaded();
-        setWaveformState(formatMarkerState());
+        setWaveformState('');
         requestWaveformDraw();
     } catch (error) {
         console.error('Error loading waveform:', error);
@@ -139,7 +138,7 @@ function updateWaveformVisibility() {
     toggle.textContent = waveformEnabled ? 'Hide Waveform' : 'Show Waveform';
     toggle.classList.toggle('active', waveformEnabled);
     toggle.setAttribute('aria-pressed', String(waveformEnabled));
-    setWaveformState(waveformEnabled ? formatMarkerState() : '');
+    setWaveformState('');
 }
 
 function ensureWaveformLoaded() {
@@ -242,7 +241,6 @@ function drawWaveform() {
 
     drawTimeGrid(context, cssWidth, cssHeight, colors);
     drawWaveformPeaks(context, cssWidth, cssHeight, colors);
-    drawBarkMarkers(context, cssWidth, cssHeight, colors);
     drawPlaybackHead(context, cssWidth, cssHeight, colors);
 }
 
@@ -306,47 +304,6 @@ function drawWaveformPeaks(context, width, height, colors) {
     }
 }
 
-function drawBarkMarkers(context, width, height, colors) {
-    const markers = getBarkMarkers();
-    if (markers.length === 0) {
-        return;
-    }
-
-    const duration = getWaveformDuration();
-    const labelMarkers = width / markers.length > 24;
-
-    markers.forEach((marker, index) => {
-        const offset = getMarkerClipOffset(marker);
-        if (offset === null) {
-            return;
-        }
-        const x = Math.max(0, Math.min(width, (offset / duration) * width));
-        const markerColor = getMarkerColor(marker, colors);
-
-        context.strokeStyle = markerColor;
-        context.fillStyle = markerColor;
-        context.lineWidth = 2;
-        context.beginPath();
-        context.moveTo(x + 0.5, 8);
-        context.lineTo(x + 0.5, height - 19);
-        context.stroke();
-
-        context.beginPath();
-        context.arc(x, 13, 6, 0, Math.PI * 2);
-        context.fill();
-
-        if (labelMarkers) {
-            context.fillStyle = colors.pinText;
-            context.font = '9px "IBM Plex Mono", monospace';
-            context.textAlign = 'center';
-            context.textBaseline = 'middle';
-            context.fillText(String(marker.index || index + 1), x, 13);
-            context.textAlign = 'start';
-            context.textBaseline = 'alphabetic';
-        }
-    });
-}
-
 function drawPlaybackHead(context, width, height, colors) {
     const audio = document.getElementById('detailAudioPlayer');
     const duration = getWaveformDuration();
@@ -374,32 +331,6 @@ function seekFromWaveformClick(event) {
     const duration = getWaveformDuration();
     audio.currentTime = (x / bounds.width) * duration;
     requestWaveformDraw();
-}
-
-function getBarkMarkers() {
-    return Array.isArray(currentEvent?.bark_markers) ? currentEvent.bark_markers : [];
-}
-
-function getMarkerClipOffset(marker) {
-    const clipOffset = Number(marker.clip_offset_sec);
-    if (Number.isFinite(clipOffset)) {
-        return clipOffset;
-    }
-    const offset = Number(marker.offset_sec);
-    return Number.isFinite(offset) ? offset : null;
-}
-
-function getMarkerColor(marker, colors) {
-    if (marker.direction === 'left') {
-        return colors.left;
-    }
-    if (marker.direction === 'right') {
-        return colors.right;
-    }
-    if (marker.direction === 'center') {
-        return colors.center;
-    }
-    return colors.marker;
 }
 
 function getWaveformDuration() {
@@ -432,26 +363,13 @@ function getWaveformColors() {
         grid: getCssColor('--border', '#d8ddd4'),
         textMuted: getCssColor('--text-2', '#57625b'),
         waveform: getCssColor('--accent', '#1e7a3c'),
-        marker: getCssColor('--warn-text', '#8a5300'),
-        left: getCssColor('--info', '#20578f'),
-        right: getCssColor('--danger', '#b3261e'),
-        center: getCssColor('--accent-strong', '#15592b'),
         playhead: getCssColor('--danger', '#b3261e'),
-        pinText: '#ffffff',
     };
 }
 
 function getCssColor(name, fallback) {
     const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return value || fallback;
-}
-
-function formatMarkerState() {
-    const count = getBarkMarkers().length;
-    if (count === 0) {
-        return 'No bark markers saved';
-    }
-    return `${count} bark marker${count === 1 ? '' : 's'}`;
 }
 
 function setWaveformState(message) {

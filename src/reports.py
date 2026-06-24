@@ -42,7 +42,7 @@ def generate_events_csv(events: List[Event]) -> str:
     writer = csv.writer(output)
 
     writer.writerow([
-        "ID", "Started At", "Ended At", "Duration (sec)", "Bark Count",
+        "ID", "Started At", "Ended At", "Duration (sec)",
         "Peak Score", "Avg Score", "Detection Threshold", "Peak Audio Level", "Avg Audio Level",
         "Direction", "Direction Score",
         "Clip Path", "Clip Hash", "False Positive", "False Pos Reason",
@@ -55,7 +55,6 @@ def generate_events_csv(events: List[Event]) -> str:
             event.started_at.isoformat(),
             event.ended_at.isoformat(),
             round(event.duration_sec, 2),
-            event.bark_count,
             round(event.peak_score, 3),
             round(event.avg_score, 3),
             round(event.detection_threshold, 3) if event.detection_threshold is not None else "",
@@ -177,7 +176,7 @@ class ReportGenerator:
         .summary-grid {{
             display: grid;
             gap: 0.08in;
-            grid-template-columns: repeat(6, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             margin: 0.13in 0 0.1in;
         }}
         .metric {{
@@ -325,9 +324,6 @@ class ReportGenerator:
         .col-duration {{
             width: 6%;
         }}
-        .col-barks {{
-            width: 5%;
-        }}
         .col-score {{
             width: 8%;
         }}
@@ -409,7 +405,6 @@ class ReportGenerator:
 
         <section class="summary-grid" aria-label="Summary statistics">
             <div class="metric"><span class="metric-label">Incidents</span><span class="metric-value">{stats["total_incidents"]}</span></div>
-            <div class="metric"><span class="metric-label">Barks</span><span class="metric-value">{stats["total_barks"]}</span></div>
             <div class="metric"><span class="metric-label">Barking Time</span><span class="metric-value">{_format_duration(stats["total_duration"])}</span></div>
             <div class="metric"><span class="metric-label">Longest</span><span class="metric-value">{_format_duration(stats["longest_duration"])}</span></div>
             <div class="metric"><span class="metric-label">Avg Peak</span><span class="metric-value">{stats["avg_peak_score"]:.2f}</span></div>
@@ -462,7 +457,6 @@ class ReportGenerator:
                 <colgroup>
                     <col class="col-start">
                     <col class="col-duration">
-                    <col class="col-barks">
                     <col class="col-score">
                     <col class="col-direction">
                     <col class="col-weather">
@@ -473,7 +467,6 @@ class ReportGenerator:
                     <tr>
                         <th>Start</th>
                         <th>Dur</th>
-                        <th>Barks</th>
                         <th>Score</th>
                         <th>Direction</th>
                         <th>Weather</th>
@@ -492,7 +485,7 @@ class ReportGenerator:
             <div class="appendix-grid">
                 <div class="appendix-block">
                     <h3>What the software does</h3>
-                    <p>Doggy Detector monitors the configured microphone, analyzes rolling audio windows for bark-like sounds, and groups qualifying detections into incidents using the configured threshold, minimum bark count, silence gap, merge window, and pre-roll settings.</p>
+                    <p>Doggy Detector monitors the configured microphone, analyzes rolling audio windows for bark-like sounds, and groups qualifying detections into incidents using the configured threshold, minimum detection count, silence gap, merge window, and pre-roll settings.</p>
                     <p>This report summarizes incidents saved during the selected date range. It does not make a legal conclusion; it packages the underlying audio and metadata so the results can be reviewed.</p>
                 </div>
                 <div class="appendix-block">
@@ -507,7 +500,7 @@ class ReportGenerator:
                 <div class="appendix-block">
                     <h3>Why the results are auditable</h3>
                     <ul>
-                        <li>Each incident includes a start time, duration, bark count, model scores, threshold used, and clip reference.</li>
+                        <li>Each incident includes a start time, duration, model scores, threshold used, and clip reference.</li>
                         <li>Calibration fields show both detector confidence and input audio level at the time of detection.</li>
                         <li>The CSV contains the detailed event table, including the full clip hash for comparison.</li>
                         <li>The ZIP includes the PDF, CSV, and referenced clips for non-false-positive incidents.</li>
@@ -580,7 +573,6 @@ def _build_stats(events: List[Event]) -> dict:
     total_duration = sum(event.duration_sec for event in events)
     return {
         "total_incidents": total_incidents,
-        "total_barks": sum(event.bark_count for event in events),
         "total_duration": total_duration,
         "longest_duration": max((event.duration_sec for event in events), default=0),
         "avg_peak_score": sum(event.peak_score for event in events) / total_incidents if total_incidents else 0,
@@ -643,7 +635,7 @@ def _build_hour_cells(hour_counts: Counter) -> str:
 
 def _build_event_rows(events: List[Event]) -> str:
     if not events:
-        return '<tr><td class="empty-row" colspan="8">No incidents in this report period.</td></tr>'
+        return '<tr><td class="empty-row" colspan="7">No incidents in this report period.</td></tr>'
 
     rows = []
     for event in events:
@@ -652,7 +644,6 @@ def _build_event_rows(events: List[Event]) -> str:
             <tr>
                 <td class="num">{event.started_at:%Y-%m-%d}<br><span class="muted">{event.started_at:%H:%M:%S}</span></td>
                 <td class="num">{_format_duration(event.duration_sec)}</td>
-                <td class="num">{event.bark_count}</td>
                 <td class="num">{_format_score_calibration(event)}</td>
                 <td>{_format_direction(event)}</td>
                 <td class="wrap-anywhere">{_format_weather(event)}</td>

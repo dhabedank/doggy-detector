@@ -154,6 +154,7 @@ def test_event_detail_page_requires_auth(client, temp_storage):
     assert f'data-event-id="{event_id}"' in response.text
     assert "waveformToggleBtn" in response.text
     assert "waveformCanvas" in response.text
+    assert "detailBarks" not in response.text
     assert "/static/event-detail.js?v=" in response.text
 
 
@@ -229,7 +230,6 @@ def test_list_events_with_data(auth_client, temp_storage):
         avg_audio_level=0.22,
         direction="center",
         clip_path="clips/2024-01-15/10-00-00_000.wav",
-        bark_markers=[{"index": 1, "offset_sec": 0.0, "clip_offset_sec": 9.5, "score": 0.8}],
     )
     temp_storage.save_event(event)
 
@@ -237,7 +237,7 @@ def test_list_events_with_data(auth_client, temp_storage):
     assert response.status_code == 200
     data = response.json()
     assert len(data["events"]) == 1
-    assert data["events"][0]["bark_count"] == 3
+    assert "bark_count" not in data["events"][0]
     assert data["events"][0]["started_at"] == "2024-01-15T10:00:00"
     assert data["events"][0]["duration_sec"] == 5.0
     assert data["events"][0]["peak_score"] == 0.8
@@ -247,9 +247,7 @@ def test_list_events_with_data(auth_client, temp_storage):
     assert data["events"][0]["avg_audio_level"] == 0.22
     assert data["events"][0]["direction"] == "center"
     assert data["events"][0]["clip_url"] == "/api/clips/2024-01-15/10-00-00_000.wav"
-    assert data["events"][0]["bark_markers"] == [
-        {"index": 1, "offset_sec": 0.0, "clip_offset_sec": 9.5, "score": 0.8}
-    ]
+    assert "bark_markers" not in data["events"][0]
     assert "clip_hash" in data["events"][0]
 
 
@@ -312,7 +310,6 @@ def test_get_event_detail(auth_client, temp_storage):
         weather_temp_f=72.0,
         weather_wind_mph=3.0,
         weather_conditions="clear",
-        bark_markers=[{"index": 1, "offset_sec": 0.0, "clip_offset_sec": 10.0, "score": 0.8}],
     )
     event_id = temp_storage.save_event(event)
 
@@ -323,9 +320,8 @@ def test_get_event_detail(auth_client, temp_storage):
     assert data["id"] == event_id
     assert data["clip_hash"] == "abc123"
     assert data["weather_conditions"] == "clear"
-    assert data["bark_markers"] == [
-        {"index": 1, "offset_sec": 0.0, "clip_offset_sec": 10.0, "score": 0.8}
-    ]
+    assert "bark_count" not in data
+    assert "bark_markers" not in data
 
 
 def test_flag_event(auth_client, temp_storage):
@@ -726,6 +722,7 @@ def test_report_zip_excludes_false_positive_clips(auth_client, temp_storage, mon
     assert "clips/2024-01-15/false.wav" not in names
     assert csv_name == "events_2024-01-15_to_2024-01-15.csv"
     assert "Clip Hash" in csv_text
+    assert "Bark Count" not in csv_text
     assert "validfullhash1234567890" in csv_text
     assert "falsefullhash1234567890" not in csv_text
 
@@ -752,6 +749,7 @@ def test_csv_export_includes_calibration_fields(auth_client, temp_storage):
     assert "Peak Audio Level" in csv_text
     assert "Avg Audio Level" in csv_text
     assert "Clip Hash" in csv_text
+    assert "Bark Count" not in csv_text
     assert "fullcliphashabcdef123456" in csv_text
     assert "0.05" in csv_text
     assert "0.34" in csv_text

@@ -1001,7 +1001,6 @@ def _event_to_dict(event) -> dict[str, Any]:
         "started_at": event.started_at.isoformat(),
         "ended_at": event.ended_at.isoformat(),
         "duration_sec": event.duration_sec,
-        "bark_count": event.bark_count,
         "peak_score": event.peak_score,
         "avg_score": event.avg_score,
         "detection_threshold": event.detection_threshold,
@@ -1016,7 +1015,6 @@ def _event_to_dict(event) -> dict[str, Any]:
         "weather_temp_f": event.weather_temp_f,
         "weather_wind_mph": event.weather_wind_mph,
         "weather_conditions": event.weather_conditions,
-        "bark_markers": event.bark_markers,
         "clip_url": f"/api/{event.clip_path}" if event.clip_path else None,
     }
 
