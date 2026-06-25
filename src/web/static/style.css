@@ -818,9 +818,38 @@ body {
     border-bottom: 1px solid var(--border);
 }
 
+.sort-button {
+    align-items: center;
+    background: none;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    font-weight: inherit;
+    gap: 0.25rem;
+    letter-spacing: inherit;
+    padding: 0;
+    text-align: left;
+    text-transform: inherit;
+}
+
+.sort-button:hover,
+.sort-button.active {
+    color: var(--text);
+}
+
+.sort-indicator {
+    color: var(--accent-strong);
+    display: inline-block;
+    font-family: var(--font-mono);
+    min-width: 0.65rem;
+}
+
 .events-table td {
     padding: 0.45rem 0.85rem;
     border-bottom: 1px solid var(--border-2);
+    vertical-align: middle;
 }
 
 .events-table tbody tr:last-child td {
@@ -906,7 +935,12 @@ body {
 }
 
 .actions {
+    white-space: nowrap;
+}
+
+.actions-group {
     display: flex;
+    align-items: center;
     gap: 0.35rem;
 }
 
@@ -926,8 +960,25 @@ body {
     font-family: var(--font-mono);
     font-size: 0.78rem;
     color: var(--text-2);
-    min-width: 100px;
+    min-width: 3.2rem;
     text-align: center;
+}
+
+.page-jump {
+    align-items: center;
+    color: var(--text-2);
+    display: inline-flex;
+    font-size: 0.78rem;
+    font-weight: 600;
+    gap: 0.35rem;
+}
+
+.page-jump .form-input {
+    font-family: var(--font-mono);
+    height: 2rem;
+    padding: 0.3rem 0.45rem;
+    text-align: center;
+    width: 4.6rem;
 }
 
 /* ============================================================
@@ -1649,6 +1700,261 @@ select.form-input {
 }
 
 /* ============================================================
+   Reports page
+   ============================================================ */
+
+.reports-page {
+    max-width: 1180px;
+}
+
+.reports-toolbar,
+.report-panel {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+}
+
+.reports-toolbar {
+    margin-bottom: 0.9rem;
+    padding: 0.85rem 1rem;
+}
+
+.reports-toolbar-top {
+    align-items: end;
+    display: grid;
+    gap: 0.65rem;
+    grid-template-columns: minmax(18rem, 2fr) repeat(2, minmax(8rem, 0.8fr)) repeat(3, minmax(6.5rem, 0.7fr)) minmax(11rem, 1fr) auto;
+}
+
+.reports-toolbar .form-group {
+    margin-bottom: 0;
+}
+
+.report-time-field,
+.report-gap-field {
+    min-width: 0;
+}
+
+.report-toggle {
+    align-self: end;
+    min-height: 2.28rem;
+}
+
+.reports-meta {
+    align-items: center;
+    background-color: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    color: var(--text-2);
+    display: flex;
+    flex-wrap: wrap;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    gap: 0.6rem;
+    justify-content: space-between;
+    margin-top: 0.75rem;
+    padding: 0.45rem 0.65rem;
+}
+
+.reports-meta span:last-child {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.report-kpi-grid {
+    margin-bottom: 0.9rem;
+}
+
+.reports-layout {
+    display: grid;
+    gap: 0.9rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 1.5rem;
+}
+
+.report-panel {
+    min-width: 0;
+    padding: 0.85rem 1rem;
+}
+
+.report-panel-wide {
+    grid-column: 1 / -1;
+}
+
+.report-panel-meta {
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.report-empty {
+    background-color: var(--surface-2);
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius);
+    color: var(--text-2);
+    font-size: 0.8rem;
+    padding: 0.65rem 0.75rem;
+}
+
+.trend-chart,
+.bar-list,
+.metric-list {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.trend-row,
+.bar-row {
+    align-items: center;
+    display: grid;
+    font-size: 0.8rem;
+    gap: 0.5rem;
+    min-height: 2.15rem;
+}
+
+.trend-row {
+    grid-template-columns: 5.8rem minmax(0, 1fr) 3.5rem 5.2rem;
+}
+
+.bar-row {
+    grid-template-columns: 6.5rem minmax(0, 1fr) 3.5rem 5.2rem;
+}
+
+.trend-date,
+.bar-label {
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.trend-row strong,
+.bar-row strong {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: right;
+}
+
+.trend-row > span:last-child,
+.bar-subtext {
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.trend-track,
+.bar-track {
+    background-color: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: 999px;
+    display: block;
+    height: 0.7rem;
+    overflow: hidden;
+}
+
+.trend-fill,
+.bar-fill {
+    background-color: var(--accent);
+    border-radius: inherit;
+    display: block;
+    height: 100%;
+    min-width: 2px;
+}
+
+.heatmap-wrap {
+    overflow-x: auto;
+}
+
+.heatmap-hours,
+.heatmap-row {
+    display: grid;
+    gap: 2px;
+    grid-template-columns: 5.8rem repeat(24, minmax(1rem, 1fr));
+    min-width: 760px;
+}
+
+.heatmap-hours {
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    margin-bottom: 0.25rem;
+    text-align: center;
+}
+
+.heatmap-row {
+    margin-bottom: 2px;
+}
+
+.heatmap-date {
+    color: var(--text-2);
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    line-height: 1rem;
+    overflow: hidden;
+    padding-right: 0.35rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.heatmap-cell {
+    aspect-ratio: 1;
+    background-color: rgba(30, 122, 60, var(--heat));
+    border: 1px solid rgba(30, 122, 60, 0.12);
+    border-radius: 2px;
+    display: block;
+    min-height: 0.86rem;
+}
+
+.metric-row {
+    align-items: center;
+    background-color: var(--surface-2);
+    border: 1px solid var(--border-2);
+    border-radius: var(--radius);
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+    min-height: 2.25rem;
+    padding: 0.45rem 0.6rem;
+}
+
+.metric-row span {
+    color: var(--text-2);
+    font-size: 0.8rem;
+    min-width: 0;
+}
+
+.metric-row strong {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.report-table-container {
+    box-shadow: none;
+    margin-bottom: 0;
+}
+
+.reports-table td {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+}
+
+/* ============================================================
    Login
    ============================================================ */
 
@@ -1724,6 +2030,18 @@ select.form-input {
     .summary-grid {
         grid-template-columns: repeat(4, minmax(0, 1fr));
     }
+
+    .reports-toolbar-top {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .reports-toolbar-top .form-group-wide {
+        grid-column: 1 / -1;
+    }
+
+    .reports-layout {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 768px) {
@@ -1754,6 +2072,38 @@ select.form-input {
     .form-grid,
     .detail-grid {
         grid-template-columns: 1fr;
+    }
+
+    .reports-toolbar-top {
+        align-items: stretch;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .reports-toolbar-top .btn,
+    .report-toggle {
+        width: 100%;
+    }
+
+    .reports-meta,
+    .section-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .report-panel-meta {
+        text-align: left;
+        white-space: normal;
+    }
+
+    .trend-row,
+    .bar-row {
+        grid-template-columns: 5.3rem minmax(0, 1fr) 3rem;
+    }
+
+    .trend-row > span:last-child,
+    .bar-subtext {
+        grid-column: 2 / -1;
+        text-align: left;
     }
 
     .health-check {
@@ -1869,14 +2219,18 @@ select.form-input {
     }
 
     .actions {
+        grid-column: 1 / -1;
+        white-space: normal;
+    }
+
+    .actions-group {
         display: grid;
         gap: 0.35rem;
-        grid-column: 1 / -1;
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .events-table .actions::before {
-        grid-column: 1 / -1;
+        display: block;
     }
 
     .btn-action {

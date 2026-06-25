@@ -9,7 +9,7 @@ import subprocess
 import tempfile
 import zipfile
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Any
 
 from fastapi import APIRouter, Request, Query, HTTPException
@@ -23,6 +23,7 @@ except ImportError:
 
 from src.health import build_health
 from src.audio import encode_pcm16_bytes, wav_stream_header
+from src.reporting import build_reporting_summary, parse_hhmm
 from src.deterrence import (
     AUDIBLE_PROFILE_NAMES,
     DEFAULT_AUDIBLE_PROFILE,
@@ -129,6 +130,13 @@ async def get_logs_page(request: Request):
     """Serve service logs page."""
     templates = request.app.state.templates
     return templates.TemplateResponse(request=request, name="logs.html")
+
+
+@router.get("/reports")
+async def get_reports_page(request: Request):
+    """Serve trend reports page."""
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request=request, name="reports.html")
 
 
 @router.get("/events/{event_id}")
@@ -657,46 +665,59 @@ async def get_summary(request: Request):
 async def list_events(
     request: Request,
     date: Optional[str] = Query(None, description="Date filter in YYYY-MM-DD format"),
+    start_date: Optional[str] = Query(None, description="Start date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(None, description="End date in YYYY-MM-DD format"),
+    start_at: Optional[str] = Query(None, description="Exact start timestamp"),
+    end_at: Optional[str] = Query(None, description="Exact end timestamp"),
     include_false_pos: bool = Query(True, description="Include false positives in results"),
     only_false_pos: bool = Query(False, description="Return only false positives"),
+    sort_by: str = Query("started_at", description="Column to sort by"),
+    sort_order: str = Query("desc", description="Sort direction"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     per_page: int = Query(20, ge=1, le=100, description="Results per page"),
 ):
     """List events with pagination and filters."""
     storage = request.app.state.storage
 
-    # Parse date filter if provided
-    start_date = None
-    end_date = None
+    # Parse date/range filter if provided
+    start = None
+    end = None
 
     if date:
         try:
             parsed_date = datetime.strptime(date, "%Y-%m-%d")
-            start_date = parsed_date
+            start = parsed_date
             # End of day for the same date
-            end_date = parsed_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            end = parsed_date.replace(hour=23, minute=59, second=59, microsecond=999999)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    elif start_at or end_at or start_date or end_date:
+        start, end = _parse_reporting_range(start_at, end_at, start_date, end_date)
+
+    sort_by = _validate_event_sort_by(sort_by)
+    sort_order = _validate_sort_order(sort_order)
 
     # Calculate offset for pagination
     offset = (page - 1) * per_page
 
     # Get total count
     total = storage.count_events(
-        start_date=start_date,
-        end_date=end_date,
+        start_date=start,
+        end_date=end,
         include_false_pos=include_false_pos,
         only_false_pos=only_false_pos,
     )
 
     # Get paginated events
     events = storage.list_events(
-        start_date=start_date,
-        end_date=end_date,
+        start_date=start,
+        end_date=end,
         include_false_pos=include_false_pos,
         only_false_pos=only_false_pos,
         limit=per_page,
         offset=offset,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
 
     event_dicts = [_event_to_dict(event) for event in events]
@@ -706,6 +727,8 @@ async def list_events(
         "total_pages": max(1, math.ceil(total / per_page)),
         "page": page,
         "per_page": per_page,
+        "sort_by": sort_by,
+        "sort_order": sort_order,
         "events": event_dicts,
 }
 
@@ -817,6 +840,74 @@ async def get_clip(
         filename=filename,
         media_type="audio/wav",
     )
+
+
+@router.get("/api/reports/analytics")
+async def get_reporting_analytics(
+    request: Request,
+    start_date: Optional[str] = Query(None, description="Start date in YYYY-MM-DD format"),
+    end_date: Optional[str] = Query(None, description="End date in YYYY-MM-DD format"),
+    start_at: Optional[str] = Query(None, description="Exact start timestamp"),
+    end_at: Optional[str] = Query(None, description="Exact end timestamp"),
+    include_false_pos: bool = Query(False, description="Include false positives in trend calculations"),
+    quiet_start: str = Query("22:00", description="Quiet-hours start in HH:MM"),
+    quiet_end: str = Query("07:00", description="Quiet-hours end in HH:MM"),
+    cluster_gap_minutes: int = Query(10, ge=1, le=120, description="Maximum gap to group repeat incidents"),
+):
+    """Return aggregate trend reports for a selected range."""
+    storage = request.app.state.storage
+    start, end = _parse_reporting_range(start_at, end_at, start_date, end_date)
+    quiet_start = _validate_report_time(quiet_start, "quiet_start")
+    quiet_end = _validate_report_time(quiet_end, "quiet_end")
+
+    selected_count = storage.count_events(
+        start_date=start,
+        end_date=end,
+        include_false_pos=include_false_pos,
+    )
+    total_event_count = storage.count_events(
+        start_date=start,
+        end_date=end,
+        include_false_pos=True,
+    )
+    false_positive_count = storage.count_events(
+        start_date=start,
+        end_date=end,
+        include_false_pos=True,
+        only_false_pos=True,
+    )
+
+    max_events = 50000
+    events = storage.list_events(
+        start_date=start,
+        end_date=end,
+        include_false_pos=include_false_pos,
+        limit=max_events,
+        offset=0,
+    )
+
+    def clip_exists(event) -> bool:
+        if not event.clip_path:
+            return False
+        clip_path = storage.resolve_clip_path(event.clip_path)
+        return bool(clip_path and clip_path.exists() and clip_path.is_file())
+
+    summary = build_reporting_summary(
+        events,
+        start=start,
+        end=end,
+        include_false_pos=include_false_pos,
+        false_positive_count=false_positive_count,
+        total_event_count=total_event_count,
+        clip_exists=clip_exists,
+        quiet_start=quiet_start,
+        quiet_end=quiet_end,
+        cluster_gap_minutes=cluster_gap_minutes,
+    )
+    summary["range"]["selected_event_count"] = selected_count
+    summary["range"]["truncated"] = selected_count > len(events)
+    summary["range"]["max_events"] = max_events
+    return summary
 
 
 @router.get("/api/reports/generate")
@@ -1040,6 +1131,67 @@ def _validate_hhmm(value: str, field_name: str) -> str:
     if hour < 0 or hour > 23 or minute < 0 or minute > 59:
         raise HTTPException(status_code=400, detail=f"{field_name} must be HH:MM")
     return f"{hour:02d}:{minute:02d}"
+
+
+def _validate_report_time(value: str, field_name: str) -> str:
+    try:
+        parsed = parse_hhmm(value)
+    except (AttributeError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be HH:MM")
+    return parsed.strftime("%H:%M")
+
+
+def _validate_event_sort_by(value: str) -> str:
+    allowed = {"started_at", "duration_sec", "peak_score", "direction"}
+    if value not in allowed:
+        raise HTTPException(status_code=400, detail="Invalid sort_by")
+    return value
+
+
+def _validate_sort_order(value: str) -> str:
+    lowered = value.lower()
+    if lowered not in {"asc", "desc"}:
+        raise HTTPException(status_code=400, detail="Invalid sort_order")
+    return lowered
+
+
+def _parse_reporting_range(
+    start_at: Optional[str],
+    end_at: Optional[str],
+    start_date: Optional[str],
+    end_date: Optional[str],
+) -> tuple[datetime, datetime]:
+    if start_at or end_at:
+        if not start_at or not end_at:
+            raise HTTPException(status_code=400, detail="start_at and end_at must be provided together")
+        try:
+            start = _parse_report_datetime(start_at)
+            end = _parse_report_datetime(end_at)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid timestamp format")
+    elif start_date or end_date:
+        if not start_date or not end_date:
+            raise HTTPException(status_code=400, detail="start_date and end_date must be provided together")
+        try:
+            start = datetime.strptime(start_date, "%Y-%m-%d")
+            end = datetime.strptime(end_date, "%Y-%m-%d")
+            end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        end = datetime.now()
+        start = end - timedelta(days=30)
+
+    if start > end:
+        raise HTTPException(status_code=400, detail="start must be before end")
+    return start, end
+
+
+def _parse_report_datetime(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone().replace(tzinfo=None)
+    return parsed
 
 
 def _normalize_optional_device(value: Any) -> Any:

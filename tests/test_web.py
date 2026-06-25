@@ -115,6 +115,21 @@ def test_logs_page_requires_auth(client):
     assert "/static/logs.js?v=" in response.text
 
 
+def test_reports_page_requires_auth(client):
+    assert client.get("/reports").status_code == 401
+    login_response = client.post(
+        "/api/auth/login",
+        json={"username": client.app.state.test_username, "password": client.app.state.test_password},
+    )
+    assert login_response.status_code == 200
+
+    response = client.get("/reports")
+    assert response.status_code == 200
+    assert "Daily Trend" in response.text
+    assert "Hour Heatmap" in response.text
+    assert "/static/reports.js?v=" in response.text
+
+
 def test_dashboard_shows_compact_ops_not_full_health_panel(auth_client):
     response = auth_client.get("/")
 
@@ -127,7 +142,12 @@ def test_dashboard_shows_compact_ops_not_full_health_panel(auth_client):
     assert 'data-range="30d"' in response.text
     assert 'data-range="last-year"' in response.text
     assert "/static/app.js?v=" in response.text
+    assert 'href="/reports"' in response.text
     assert 'href="/logs"' in response.text
+    assert 'id="firstBtn"' in response.text
+    assert 'id="lastBtn"' in response.text
+    assert 'id="pageJump"' in response.text
+    assert 'data-sort="duration_sec"' in response.text
 
 
 def test_event_detail_page_requires_auth(client, temp_storage):
@@ -249,6 +269,54 @@ def test_list_events_with_data(auth_client, temp_storage):
     assert data["events"][0]["clip_url"] == "/api/clips/2024-01-15/10-00-00_000.wav"
     assert "bark_markers" not in data["events"][0]
     assert "clip_hash" in data["events"][0]
+
+
+def test_list_events_supports_ranges_and_sorting(auth_client, temp_storage):
+    short_id = temp_storage.save_event(Event(
+        started_at=datetime(2024, 1, 15, 10, 0, 0),
+        ended_at=datetime(2024, 1, 15, 10, 0, 5),
+        duration_sec=5.0,
+        bark_count=3,
+        peak_score=0.3,
+        avg_score=0.2,
+        direction="right",
+    ))
+    long_id = temp_storage.save_event(Event(
+        started_at=datetime(2024, 1, 15, 11, 0, 0),
+        ended_at=datetime(2024, 1, 15, 11, 2, 0),
+        duration_sec=120.0,
+        bark_count=12,
+        peak_score=0.8,
+        avg_score=0.5,
+        direction="left",
+    ))
+    temp_storage.save_event(Event(
+        started_at=datetime(2024, 1, 16, 10, 0, 0),
+        ended_at=datetime(2024, 1, 16, 10, 0, 5),
+        duration_sec=5.0,
+        bark_count=3,
+        peak_score=0.3,
+        avg_score=0.2,
+    ))
+
+    response = auth_client.get(
+        "/api/events?"
+        "start_at=2024-01-15T00:00:00&end_at=2024-01-15T23:59:59"
+        "&sort_by=duration_sec&sort_order=desc"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    assert [event["id"] for event in data["events"]] == [long_id, short_id]
+    assert data["sort_by"] == "duration_sec"
+    assert data["sort_order"] == "desc"
+
+
+def test_list_events_rejects_unknown_sort(auth_client):
+    response = auth_client.get("/api/events?sort_by=bark_count")
+
+    assert response.status_code == 400
 
 
 def test_list_events_handles_legacy_numeric_blobs(auth_client, temp_storage):
@@ -675,6 +743,49 @@ def test_update_location_rejects_out_of_range_coordinates(auth_client):
     })
 
     assert response.status_code == 400
+
+
+def test_reporting_analytics_excludes_unreliable_bark_fields(auth_client, temp_storage):
+    clip_path = temp_storage.data_dir / "clips" / "2024-01-15" / "analytics.wav"
+    clip_path.parent.mkdir(parents=True, exist_ok=True)
+    clip_path.write_bytes(b"clip")
+    temp_storage.save_event(Event(
+        started_at=datetime(2024, 1, 15, 22, 0, 0),
+        ended_at=datetime(2024, 1, 15, 22, 0, 20),
+        duration_sec=20.0,
+        bark_count=3,
+        peak_score=0.31,
+        avg_score=0.2,
+        detection_threshold=0.29,
+        direction="left",
+        clip_path="clips/2024-01-15/analytics.wav",
+        bark_markers=[{"time_sec": 4.0}],
+    ))
+    temp_storage.save_event(Event(
+        started_at=datetime(2024, 1, 15, 23, 0, 0),
+        ended_at=datetime(2024, 1, 15, 23, 0, 5),
+        duration_sec=5.0,
+        bark_count=1,
+        peak_score=0.2,
+        avg_score=0.1,
+        is_false_pos=True,
+    ))
+
+    response = auth_client.get(
+        "/api/reports/analytics?"
+        "start_at=2024-01-15T00:00:00&end_at=2024-01-15T23:59:59"
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["kpis"]["incident_count"] == 1
+    assert data["kpis"]["total_event_count"] == 2
+    assert data["kpis"]["false_positive_count"] == 1
+    assert data["kpis"]["recorded_clip_count"] == 1
+    assert data["quiet_hours"]["incident_count"] == 1
+    payload_text = str(data).lower()
+    assert "bark_count" not in payload_text
+    assert "bark_markers" not in payload_text
 
 
 def test_report_zip_excludes_false_positive_clips(auth_client, temp_storage, monkeypatch):

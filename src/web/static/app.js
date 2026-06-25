@@ -6,6 +6,8 @@ let eventsPerPage = 20;
 // Filter state
 let dateFilter = '';
 let falsePositiveFilter = '';
+let sortBy = 'started_at';
+let sortOrder = 'desc';
 
 // Modal state
 let reportModal = null;
@@ -49,6 +51,21 @@ function setupEventListeners() {
         fetchEvents();
     });
 
+    document.querySelectorAll('.sort-button').forEach(button => {
+        button.addEventListener('click', function() {
+            const nextSort = this.dataset.sort;
+            if (sortBy === nextSort) {
+                sortOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+            } else {
+                sortBy = nextSort;
+                sortOrder = nextSort === 'direction' ? 'asc' : 'desc';
+            }
+            currentPage = 1;
+            updateSortIndicators();
+            fetchEvents();
+        });
+    });
+
     // Button listeners
     document.getElementById('refreshBtn').addEventListener('click', function() {
         currentPage = 1;
@@ -87,19 +104,30 @@ function setupEventListeners() {
     });
 
     // Pagination listeners
+    document.getElementById('firstBtn').addEventListener('click', function() {
+        goToPage(1);
+    });
+
     document.getElementById('prevBtn').addEventListener('click', function() {
-        if (currentPage > 1) {
-            currentPage--;
-            fetchEvents();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
+        goToPage(currentPage - 1);
     });
 
     document.getElementById('nextBtn').addEventListener('click', function() {
-        if (currentPage < totalPages) {
-            currentPage++;
-            fetchEvents();
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+        goToPage(currentPage + 1);
+    });
+
+    document.getElementById('lastBtn').addEventListener('click', function() {
+        goToPage(totalPages);
+    });
+
+    document.getElementById('pageJump').addEventListener('change', function() {
+        goToPage(Number(this.value));
+    });
+
+    document.getElementById('pageJump').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            goToPage(Number(this.value));
         }
     });
 
@@ -132,11 +160,10 @@ function fetchEvents() {
     const params = new URLSearchParams();
     params.append('page', currentPage);
     params.append('per_page', eventsPerPage);
+    params.append('sort_by', sortBy);
+    params.append('sort_order', sortOrder);
 
-    if (dateFilter === 'today') {
-        const today = new Date().toISOString().split('T')[0];
-        params.append('date', today);
-    }
+    appendDateFilterParams(params);
 
     if (falsePositiveFilter === 'valid') {
         params.append('include_false_pos', 'false');
@@ -157,8 +184,13 @@ function fetchEvents() {
             return response.json();
         })
         .then(data => {
-            renderEvents(data.events || []);
             totalPages = data.total_pages || 1;
+            if (currentPage > totalPages) {
+                currentPage = totalPages;
+                fetchEvents();
+                return;
+            }
+            renderEvents(data.events || []);
             updatePagination();
             fetchSummary();
         })
@@ -223,7 +255,7 @@ function renderEvents(events) {
                 <td class="event-score" data-label="Score">${score}%</td>
                 <td data-label="Direction">${direction}</td>
                 <td data-label="Details">${detailLink}</td>
-                <td class="actions" data-label="Actions">${flagButton}${deleteButton}</td>
+                <td class="actions" data-label="Actions"><div class="actions-group">${flagButton}${deleteButton}</div></td>
             </tr>
         `;
     }).join('');
@@ -245,13 +277,84 @@ function renderDirection(direction) {
 // Update pagination controls
 function updatePagination() {
     const pageInfo = document.getElementById('pageInfo');
-    pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+    pageInfo.textContent = `of ${totalPages}`;
 
+    const firstBtn = document.getElementById('firstBtn');
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
+    const lastBtn = document.getElementById('lastBtn');
+    const pageJump = document.getElementById('pageJump');
 
+    pageJump.max = totalPages;
+    pageJump.value = currentPage;
+
+    firstBtn.disabled = currentPage <= 1;
     prevBtn.disabled = currentPage <= 1;
     nextBtn.disabled = currentPage >= totalPages;
+    lastBtn.disabled = currentPage >= totalPages;
+    updateSortIndicators();
+}
+
+function goToPage(page) {
+    const nextPage = Math.max(1, Math.min(totalPages, Number(page) || 1));
+    if (nextPage === currentPage) {
+        updatePagination();
+        return;
+    }
+    currentPage = nextPage;
+    fetchEvents();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function updateSortIndicators() {
+    document.querySelectorAll('.sort-button').forEach(button => {
+        const active = button.dataset.sort === sortBy;
+        button.classList.toggle('active', active);
+        button.setAttribute('aria-pressed', String(active));
+    });
+    document.querySelectorAll('.sort-indicator').forEach(indicator => {
+        indicator.textContent = indicator.dataset.sortIndicator === sortBy
+            ? (sortOrder === 'asc' ? '↑' : '↓')
+            : '';
+    });
+}
+
+function appendDateFilterParams(params) {
+    if (!dateFilter) {
+        return;
+    }
+
+    const now = new Date();
+    let start = new Date(now);
+    let end = new Date(now);
+
+    if (dateFilter === 'today') {
+        params.append('date', formatDateInput(now));
+        return;
+    }
+
+    if (dateFilter === '24h') {
+        start = addHours(now, -24);
+    } else if (dateFilter === '7d') {
+        start = addDays(now, -7);
+    } else if (dateFilter === '30d') {
+        start = addDays(now, -30);
+    } else if (dateFilter === '90d') {
+        start = addDays(now, -90);
+    } else if (dateFilter === '6mo') {
+        start = addMonths(now, -6);
+    } else if (dateFilter === '1y') {
+        start = addYears(now, -1);
+    } else if (dateFilter === 'last-year') {
+        const lastYear = now.getFullYear() - 1;
+        start = new Date(lastYear, 0, 1, 0, 0, 0);
+        end = new Date(lastYear, 11, 31, 23, 59, 59);
+    } else {
+        return;
+    }
+
+    params.append('start_at', formatLocalDateTime(start));
+    params.append('end_at', formatLocalDateTime(end));
 }
 
 // Toggle flag status
@@ -404,6 +507,12 @@ function startOfLocalDay(date) {
     return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function addHours(date, hours) {
+    const result = new Date(date);
+    result.setHours(result.getHours() + hours);
+    return result;
+}
+
 function addDays(date, days) {
     const result = new Date(date);
     result.setDate(result.getDate() + days);
@@ -423,6 +532,16 @@ function addYears(date, years) {
     const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
     result.setDate(Math.min(date.getDate(), lastDay));
     return result;
+}
+
+function formatLocalDateTime(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hour = String(date.getHours()).padStart(2, '0');
+    const minute = String(date.getMinutes()).padStart(2, '0');
+    const second = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
 }
 
 function formatDateInput(date) {

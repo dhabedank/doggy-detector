@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doggy Detector - Reports</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v={{ request.app.state.asset_version }}">
+</head>
+<body>
+    <header class="header">
+        <div class="header-content">
+            <div class="header-brand">
+                <h1 class="logo">Doggy Detector</h1>
+                <nav class="site-nav" aria-label="Primary">
+                    <a href="/">Dashboard</a>
+                    <a href="/reports" aria-current="page">Reports</a>
+                    <a href="/logs">Logs</a>
+                    <a href="/settings">Settings</a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <main class="container reports-page">
+        <section class="reports-toolbar" aria-label="Report filters">
+            <div class="reports-toolbar-top">
+                <div class="form-group form-group-wide">
+                    <label>Range</label>
+                    <div class="report-range-presets" role="group" aria-label="Report range">
+                        <button type="button" class="range-preset" data-range="24h">24 hrs</button>
+                        <button type="button" class="range-preset" data-range="7d">1 Week</button>
+                        <button type="button" class="range-preset" data-range="30d">1 Month</button>
+                        <button type="button" class="range-preset" data-range="90d">90 Days</button>
+                        <button type="button" class="range-preset" data-range="6mo">6 Mo</button>
+                        <button type="button" class="range-preset" data-range="1y">1 Year</button>
+                        <button type="button" class="range-preset" data-range="last-year">Last Year</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="reportStartDate">Start</label>
+                    <input type="date" id="reportStartDate" class="form-input">
+                </div>
+                <div class="form-group">
+                    <label for="reportEndDate">End</label>
+                    <input type="date" id="reportEndDate" class="form-input">
+                </div>
+                <div class="form-group report-time-field">
+                    <label for="quietStart">Quiet Start</label>
+                    <input type="time" id="quietStart" class="form-input" value="22:00">
+                </div>
+                <div class="form-group report-time-field">
+                    <label for="quietEnd">Quiet End</label>
+                    <input type="time" id="quietEnd" class="form-input" value="07:00">
+                </div>
+                <div class="form-group report-gap-field">
+                    <label for="clusterGap">Cluster Gap</label>
+                    <input type="number" id="clusterGap" class="form-input" min="1" max="120" step="1" value="10">
+                </div>
+                <label class="toggle-row report-toggle">
+                    <input type="checkbox" id="includeFalsePos">
+                    <span>Include false positives</span>
+                </label>
+                <button class="btn btn-primary" type="button" id="refreshReportsBtn">Refresh</button>
+            </div>
+            <div class="reports-meta">
+                <span id="reportRangeLabel">Loading range...</span>
+                <span id="reportState">Loading</span>
+            </div>
+        </section>
+
+        <section class="summary-grid report-kpi-grid" id="reportKpis">
+            <div class="summary-card">
+                <span class="summary-label">Incidents</span>
+                <strong id="kpiIncidents">0</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Incident Time</span>
+                <strong id="kpiDuration">0s</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Monitoring Share</span>
+                <strong id="kpiShare">0.0%</strong>
+            </div>
+            <div class="summary-card">
+                <span class="summary-label">Rate</span>
+                <strong id="kpiRate">0/hr</strong>
+            </div>
+            <div class="summary-card summary-card-muted">
+                <span class="summary-label">Average</span>
+                <strong id="kpiAverage">0s</strong>
+            </div>
+            <div class="summary-card summary-card-muted">
+                <span class="summary-label">Median</span>
+                <strong id="kpiMedian">0s</strong>
+            </div>
+            <div class="summary-card summary-card-muted">
+                <span class="summary-label">P90</span>
+                <strong id="kpiP90">0s</strong>
+            </div>
+            <div class="summary-card summary-card-muted">
+                <span class="summary-label">Longest</span>
+                <strong id="kpiLongest">0s</strong>
+            </div>
+        </section>
+
+        <div class="reports-layout">
+            <section class="report-panel report-panel-wide">
+                <div class="section-header">
+                    <h2>Daily Trend</h2>
+                    <span class="report-panel-meta" id="dailyTrendMeta">0 incidents</span>
+                </div>
+                <div class="trend-chart" id="dailyTrendChart"></div>
+            </section>
+
+            <section class="report-panel report-panel-wide">
+                <div class="section-header">
+                    <h2>Hour Heatmap</h2>
+                    <span class="report-panel-meta">Start time by hour</span>
+                </div>
+                <div class="heatmap-wrap">
+                    <div class="heatmap-hours" id="heatmapHours"></div>
+                    <div class="heatmap-grid" id="hourHeatmap"></div>
+                </div>
+            </section>
+
+            <section class="report-panel">
+                <div class="section-header">
+                    <h2>Time Of Day</h2>
+                    <span class="report-panel-meta" id="hourlyMeta">0 peak hour</span>
+                </div>
+                <div class="bar-list" id="hourlyBars"></div>
+            </section>
+
+            <section class="report-panel">
+                <div class="section-header">
+                    <h2>Duration Mix</h2>
+                    <span class="report-panel-meta" id="durationMeta">0 incidents</span>
+                </div>
+                <div class="bar-list" id="durationBuckets"></div>
+            </section>
+
+            <section class="report-panel">
+                <div class="section-header">
+                    <h2>Quiet Hours</h2>
+                    <span class="report-panel-meta" id="quietWindowLabel">22:00-07:00</span>
+                </div>
+                <div class="metric-list" id="quietMetrics"></div>
+            </section>
+
+            <section class="report-panel">
+                <div class="section-header">
+                    <h2>Clip Coverage</h2>
+                    <span class="report-panel-meta" id="qualityMeta">0 reviewed</span>
+                </div>
+                <div class="metric-list" id="qualityMetrics"></div>
+            </section>
+
+            <section class="report-panel">
+                <div class="section-header">
+                    <h2>Direction</h2>
+                    <span class="report-panel-meta" id="directionMeta">No direction</span>
+                </div>
+                <div class="bar-list" id="directionBars"></div>
+            </section>
+
+            <section class="report-panel">
+                <div class="section-header">
+                    <h2>Weather</h2>
+                    <span class="report-panel-meta" id="weatherMeta">No weather</span>
+                </div>
+                <div class="bar-list" id="weatherBars"></div>
+            </section>
+
+            <section class="report-panel report-panel-wide">
+                <div class="section-header">
+                    <h2>Repeat Clusters</h2>
+                    <span class="report-panel-meta" id="clusterMeta">10 minute gap</span>
+                </div>
+                <div class="table-container report-table-container">
+                    <table class="events-table reports-table">
+                        <thead>
+                            <tr>
+                                <th>Started</th>
+                                <th>Span</th>
+                                <th>Incidents</th>
+                                <th>Incident Time</th>
+                                <th>Max Gap</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clusterTableBody">
+                            <tr class="loading-row"><td colspan="5">Loading clusters...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="report-panel report-panel-wide">
+                <div class="section-header">
+                    <h2>Longest Incidents</h2>
+                    <span class="report-panel-meta" id="longestMeta">Top 10</span>
+                </div>
+                <div class="table-container report-table-container">
+                    <table class="events-table reports-table">
+                        <thead>
+                            <tr>
+                                <th>Date / Time</th>
+                                <th>Duration</th>
+                                <th>Score</th>
+                                <th>Direction</th>
+                                <th>Weather</th>
+                                <th>Link</th>
+                            </tr>
+                        </thead>
+                        <tbody id="longestTableBody">
+                            <tr class="loading-row"><td colspan="6">Loading incidents...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="/static/reports.js?v={{ request.app.state.asset_version }}"></script>
+</body>
+</html>

@@ -17,6 +17,7 @@
                 <h1 class="logo">Doggy Detector</h1>
                 <nav class="site-nav" aria-label="Primary">
                     <a href="/" aria-current="page">Dashboard</a>
+                    <a href="/reports">Reports</a>
                     <a href="/logs">Logs</a>
                     <a href="/settings">Settings</a>
                 </nav>
@@ -160,7 +161,14 @@
                 <div class="filter-group">
                     <select id="dateFilter" class="form-input" aria-label="Filter by date">
                         <option value="">All Dates</option>
+                        <option value="24h">Last 24 hrs</option>
                         <option value="today">Today</option>
+                        <option value="7d">Last 1 Week</option>
+                        <option value="30d">Last 1 Month</option>
+                        <option value="90d">Last 90 Days</option>
+                        <option value="6mo">Last 6 Mo</option>
+                        <option value="1y">Last 1 Year</option>
+                        <option value="last-year">Last Year</option>
                     </select>
                 </div>
                 <div class="filter-group">
@@ -187,10 +195,10 @@
             <table class="events-table">
                 <thead>
                     <tr>
-                        <th>Date / Time</th>
-                        <th>Duration</th>
-                        <th>Score</th>
-                        <th>Direction</th>
+                        <th><button class="sort-button" type="button" data-sort="started_at">Date / Time <span class="sort-indicator" data-sort-indicator="started_at"></span></button></th>
+                        <th><button class="sort-button" type="button" data-sort="duration_sec">Duration <span class="sort-indicator" data-sort-indicator="duration_sec"></span></button></th>
+                        <th><button class="sort-button" type="button" data-sort="peak_score">Score <span class="sort-indicator" data-sort-indicator="peak_score"></span></button></th>
+                        <th><button class="sort-button" type="button" data-sort="direction">Direction <span class="sort-indicator" data-sort-indicator="direction"></span></button></th>
                         <th>Clip</th>
                         <th>Actions</th>
                     </tr>
@@ -205,9 +213,15 @@
 
         <!-- Pagination -->
         <div class="pagination">
+            <button class="btn btn-pagination" id="firstBtn">First</button>
             <button class="btn btn-pagination" id="prevBtn">← Prev</button>
-            <span class="page-info" id="pageInfo">Page 1 of 1</span>
+            <label class="page-jump" for="pageJump">
+                <span>Page</span>
+                <input type="number" id="pageJump" class="form-input" min="1" value="1">
+            </label>
+            <span class="page-info" id="pageInfo">of 1</span>
             <button class="btn btn-pagination" id="nextBtn">Next →</button>
+            <button class="btn btn-pagination" id="lastBtn">Last</button>
         </div>
     </main>
 

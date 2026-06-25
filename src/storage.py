@@ -187,6 +187,8 @@ class Storage:
         only_false_pos: bool = False,
         limit: int = 100,
         offset: int = 0,
+        sort_by: str = "started_at",
+        sort_order: str = "desc",
     ) -> List[Event]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -207,7 +209,16 @@ class Storage:
         elif not include_false_pos:
             query += " AND is_false_pos = 0"
 
-        query += " ORDER BY started_at DESC LIMIT ? OFFSET ?"
+        sort_columns = {
+            "started_at": "started_at",
+            "duration_sec": "duration_sec",
+            "peak_score": "peak_score",
+            "direction": "direction",
+        }
+        sort_column = sort_columns.get(sort_by, "started_at")
+        direction = "ASC" if sort_order.lower() == "asc" else "DESC"
+        id_direction = "ASC" if direction == "ASC" else "DESC"
+        query += f" ORDER BY {sort_column} {direction}, id {id_direction} LIMIT ? OFFSET ?"
         params.extend([limit, offset])
 
         cursor = conn.execute(query, params)
